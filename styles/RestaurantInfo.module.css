@@ -1,0 +1,113 @@
+.wrapper {
+  background: #fff;
+  padding: 16px 20px;
+  border-bottom: 1px solid rgba(0,0,0,0.06);
+}
+
+.topRow {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 16px;
+  align-items: center;
+}
+
+.logo {
+  width: 56px;
+  height: 56px;
+  border-radius: 12px;
+  background: rgba(0, 200, 83, 0.12);
+  color: #00c853;
+  display: grid;
+  place-items: center;
+  font-weight: 800;
+  letter-spacing: 0.5px;
+}
+
+.meta {}
+
+.title {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 700;
+  color: #1b1b1b;
+}
+
+.address {
+  margin-top: 6px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: #444;
+  font-size: 14px;
+}
+
+.actions { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; }
+
+.hoursBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  background: #f4f4f5;
+  border: 1px solid #e6e6e6;
+  color: #222;
+  padding: 8px 12px;
+  border-radius: 10px;
+}
+
+.hoursLabel { font-weight: 600; }
+.todayValue { color: #666; font-size: 13px; }
+.clockIcon { flex: 0 0 auto; }
+
+.chevron { transition: transform .18s ease; }
+.chevronOpen { transform: rotate(180deg); }
+
+.schedulePanel {
+  margin-top: 12px;
+  background: #fff;
+  border: 1px solid #eee;
+  border-radius: 12px;
+  padding: 8px 12px;
+}
+
+.serviceSwitch {
+  margin-top: 2px;
+  display: inline-flex;
+  gap: 8px;
+  background: #f5f5f5;
+  border: 1px solid #ececec;
+  padding: 4px;
+  border-radius: 12px;
+}
+
+.pill {
+  min-width: 92px;
+  padding: 8px 14px;
+  border-radius: 8px;
+  font-weight: 600;
+  color: #333;
+  background: transparent;
+}
+
+.active {
+  background: #00c853;
+  color: #fff;
+}
+
+.row {
+  display: grid;
+  grid-template-columns: 140px 1fr;
+  gap: 12px;
+  padding: 10px 4px;
+  border-top: 1px dashed rgba(0,0,0,0.06);
+}
+
+.row:first-child { border-top: none; }
+
+.day { color: #333; font-weight: 600; }
+.time { color: #444; }
+.todayRow .day, .todayRow .time { color: #00c853; font-weight: 700; }
+
+@media (max-width: 640px) {
+  .topRow { grid-template-columns: auto 1fr; }
+  .actions { grid-column: 1 / -1; justify-content: flex-start; }
+}

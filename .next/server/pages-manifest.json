@@ -1,0 +1,9 @@
+{
+  "/_app": "pages/_app.js",
+  "/_error": "pages/_error.js",
+  "/_document": "pages/_document.js",
+  "/api/restaurant/[slug]/items": "pages/api/restaurant/[slug]/items.js",
+  "/api/restaurant/[slug]/menu-categories": "pages/api/restaurant/[slug]/menu-categories.js",
+  "/restaurant/[slug]": "pages/restaurant/[slug].js",
+  "/api/restaurant/[slug]/item-categories": "pages/api/restaurant/[slug]/item-categories.js"
+}

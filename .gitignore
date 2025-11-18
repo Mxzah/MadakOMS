@@ -1,0 +1,47 @@
+# Node
+node_modules/
+
+# Next.js
+.next/
+out/
+.DS_Store
+
+# Environment
+.env
+.env.*.local
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Editor/IDE
+.vscode/
+.idea/
+
+# Build / cache
+dist/
+coverage/
+.cache/
+
+# Misc
+*.local
+*.log
+
+# OS
+Thumbs.db
+ehthumbs.db
+
+# Optional: Vercel
+.vercel/
+
+# Mac
+.DS_Store
+
+# Windows
+desktop.ini
+
+# Ignore lockfiles only if desired (usually you should commit lockfiles)
+# package-lock.json
+# yarn.lock

@@ -1,0 +1,135 @@
+.itemsGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+@media (max-width: 640px) {
+  .itemsGrid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.categoriesNav {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 8px;
+  margin-bottom: 16px;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.categoryLink {
+  display: inline-block;
+  padding: 8px 12px;
+  border-radius: 9999px;
+  background: #f3f4f6;
+  color: #111827;
+  text-decoration: none;
+  white-space: nowrap;
+  font-weight: 500;
+}
+
+.categoryLink:hover {
+  background: #e5e7eb;
+}
+
+.categorySection {
+  scroll-margin-top: 80px;
+  margin-top: 24px;
+}
+
+.categoryTitle {
+  font-size: 1.125rem;
+  line-height: 1.75rem;
+  font-weight: 700;
+  margin-bottom: 12px;
+}
+
+/* Two-column layout with sticky side nav */
+.pageLayout {
+  padding: 24px;
+  display: grid;
+  grid-template-columns: 240px 1fr;
+  gap: 24px;
+}
+
+.sideNav {
+  min-width: 0;
+}
+
+.sideNavInner {
+  position: sticky;
+  top: 96px; /* adjust if header/infos height changes */
+  max-height: calc(100vh - 96px);
+  overflow: hidden;
+}
+
+.sideNavList {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  border-radius: 12px;
+  background: #f9fafb;
+  overflow-y: auto;
+}
+
+.sideNavHighlighter {
+  position: absolute;
+  left: 8px;
+  top: 0;
+  height: 36px;
+  width: calc(100% - 16px);
+  border-radius: 10px;
+  background: #10b981; /* emerald */
+  transition: transform 200ms ease, height 200ms ease;
+  z-index: 0;
+  will-change: transform, height;
+  pointer-events: none;
+}
+
+.categoryLink {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: transparent;
+  color: #111827;
+  text-decoration: none;
+  white-space: nowrap;
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.categoryLink:hover {
+  background: rgba(0,0,0,0.03);
+}
+
+.active {
+  color: #ffffff;
+}
+
+.pageContent {
+  min-width: 0;
+}
+
+/* Improve anchor offset for sticky header */
+.categorySection {
+  scroll-margin-top: 120px;
+}
+
+@media (max-width: 900px) {
+  .pageLayout {
+    grid-template-columns: 1fr;
+  }
+
+  .sideNavInner {
+    position: relative;
+    top: 0;
+    max-height: none;
+  }
+}
