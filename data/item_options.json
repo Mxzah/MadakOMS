@@ -1,0 +1,45 @@
+[
+  {
+    "item_id": 1,
+    "groups": [
+      {
+        "id": "size",
+        "title": "Sélectionnez la taille",
+        "type": "single",
+        "required": true,
+        "min": 1,
+        "max": 1,
+        "options": [
+          { "id": "classic", "label": "Classique", "price_delta": 0.0 },
+          { "id": "grand", "label": "Grand", "price_delta": 3.90 }
+        ]
+      },
+      {
+        "id": "remove",
+        "title": "Ingrédients à retirer – Poutine",
+        "type": "multi",
+        "required": false,
+        "min": 0,
+        "max": 3,
+        "options": [
+          { "id": "no_sauce", "label": "Sans Sauce poutine", "price_delta": 0.0 },
+          { "id": "no_cheese", "label": "Sans Fromage en grains", "price_delta": 0.0 },
+          { "id": "no_salt", "label": "Sans Sel", "price_delta": 0.0 }
+        ]
+      },
+      {
+        "id": "add",
+        "title": "Ingrédients à ajouter – Poutine",
+        "type": "multi",
+        "required": false,
+        "min": 0,
+        "max": 3,
+        "options": [
+          { "id": "well_done", "label": "Bien cuit", "price_delta": 0.0 },
+          { "id": "extra_sauce", "label": "Ajouter Sauce poutine", "price_delta": 1.52 },
+          { "id": "extra_cheese", "label": "Ajouter Fromage en grains", "price_delta": 2.49 }
+        ]
+      }
+    ]
+  }
+]

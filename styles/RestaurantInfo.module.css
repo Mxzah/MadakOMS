@@ -15,8 +15,8 @@
   width: 56px;
   height: 56px;
   border-radius: 12px;
-  background: rgba(0, 200, 83, 0.12);
-  color: #00c853;
+  background: rgba(37, 99, 235, 0.12); /* blue tint */
+  color: #2563eb; /* accent blue */
   display: grid;
   place-items: center;
   font-weight: 800;
@@ -89,7 +89,7 @@
 }
 
 .active {
-  background: #00c853;
+  background: #2563eb;
   color: #fff;
 }
 
@@ -105,7 +105,7 @@
 
 .day { color: #333; font-weight: 600; }
 .time { color: #444; }
-.todayRow .day, .todayRow .time { color: #00c853; font-weight: 700; }
+.todayRow .day, .todayRow .time { color: #2563eb; font-weight: 700; }
 
 @media (max-width: 640px) {
   .topRow { grid-template-columns: auto 1fr; }

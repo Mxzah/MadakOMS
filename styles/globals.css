@@ -1,7 +1,7 @@
 :root {
   --bg: #111111;
   --muted: #9a9a9a;
-  --accent: #00c853;
+  --accent: #2563eb; /* primary blue */
 }
 
 html, body, #__next {

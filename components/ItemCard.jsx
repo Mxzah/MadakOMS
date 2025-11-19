@@ -7,7 +7,10 @@ function formatCAD(value) {
 }
 
 export default function ItemCard({ item, onAdd }) {
-  const { title, description, price, imageUrl } = item
+  const title = item.title ?? item.name
+  const description = item.description
+  const price = item.price ?? item.base_price
+  const imageUrl = item.imageUrl ?? item.image_url ?? item.image
 
   const handleAdd = () => onAdd?.(item)
   const handleKey = (e) => {

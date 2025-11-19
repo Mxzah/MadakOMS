@@ -83,7 +83,7 @@
   height: 36px;
   width: calc(100% - 16px);
   border-radius: 10px;
-  background: #10b981; /* emerald */
+  background: var(--accent);
   transition: transform 200ms ease, height 200ms ease;
   z-index: 0;
   will-change: transform, height;

@@ -3,6 +3,8 @@ import { useEffect, useState, useRef } from 'react'
 import Header from '../../components/Header'
 import RestaurantInfo from '../../components/RestaurantInfo'
 import ItemCard from '../../components/ItemCard'
+import ItemModal from '../../components/ItemModal'
+import { useCart } from '../../context/CartContext'
 import itemsFallback from '../../data/items-sante-taouk.json'
 import menuCategoriesFallback from '../../data/menu_categories.json'
 import itemCategoriesFallback from '../../data/item_categories.json'
@@ -20,7 +22,9 @@ function formatSlug(slug) {
 export default function RestaurantPage() {
   const router = useRouter()
   const { slug } = router.query
-  const name = slug === 'sante-taouk' ? 'Santé Taouk' : (slug ? formatSlug(slug) : 'Restaurant')
+  const restaurantName = slug === 'sante-taouk' ? 'Santé Taouk' : (slug ? formatSlug(slug) : 'Restaurant')
+  const headerTitle = 'Préparez votre commande'
+  const { addItem } = useCart()
 
   const schedule = {
     lundi: '11h00–20h00',
@@ -37,12 +41,15 @@ export default function RestaurantPage() {
   const [categories, setCategories] = useState([])
   const [itemCategories, setItemCategories] = useState([])
   const [activeCatId, setActiveCatId] = useState(null)
+  const [modalItem, setModalItem] = useState(null)
   const navListRef = useRef(null)
   const highlightRef = useRef(null)
 
   useEffect(() => {
     if (!slug) return
     let cancelled = false
+    // Persist slug for checkout page edits
+    try { if (typeof window !== 'undefined') localStorage.setItem('lastRestaurantSlug', String(slug)) } catch {}
     async function loadAll() {
       try {
         const [itemsRes, catsRes, mapRes] = await Promise.all([
@@ -66,16 +73,16 @@ export default function RestaurantPage() {
         }
       } catch (e) {
         if (!cancelled) {
-          // Fallbacks locaux pour la démo
-          if (slug === 'sante-taouk') {
-            setItems(itemsFallback)
-            setCategories(menuCategoriesFallback)
-            setItemCategories(itemCategoriesFallback)
-          } else {
-            setItems([])
-            setCategories([])
-            setItemCategories([])
-          }
+                  // Fallbacks locaux pour la démo
+                  if (slug === 'sante-taouk') {
+                    setItems(itemsFallback)
+                    setCategories(menuCategoriesFallback)
+                    setItemCategories(itemCategoriesFallback)
+                  } else {
+                    setItems([])
+                    setCategories([])
+                    setItemCategories([])
+                  }
         }
       }
     }
@@ -159,9 +166,9 @@ export default function RestaurantPage() {
 
   return (
     <div>
-      <Header name={name} cartSubtotal={18.98} cartCount={1} />
+      <Header name={headerTitle} />
 
-      <RestaurantInfo name={name} address={address} schedule={schedule} defaultService="delivery" />
+      <RestaurantInfo name={restaurantName} address={address} schedule={schedule} defaultService="delivery" />
 
       <main className={pageStyles.pageLayout}>
         {/* Side categories nav */}
@@ -188,7 +195,7 @@ export default function RestaurantPage() {
           {sections.length === 0 && (
             <section className={pageStyles.itemsGrid}>
               {items.map((item) => (
-                <ItemCard key={item.id} item={item} onAdd={(it) => console.log('Ajouter', it.id)} />
+                <ItemCard key={item.id} item={item} onAdd={(it) => setModalItem(it)} />
               ))}
             </section>
           )}
@@ -198,13 +205,25 @@ export default function RestaurantPage() {
               <h2 className={pageStyles.categoryTitle}>{cat.name}</h2>
               <div className={pageStyles.itemsGrid}>
                 {cat.items.map((item) => (
-                  <ItemCard key={item.id} item={item} onAdd={(it) => console.log('Ajouter', it.id)} />
+                  <ItemCard key={item.id} item={item} onAdd={(it) => setModalItem(it)} />
                 ))}
               </div>
             </section>
           ))}
         </div>
       </main>
+
+      {modalItem && (
+        <ItemModal
+          item={modalItem}
+          slug={slug}
+          onClose={() => setModalItem(null)}
+          onConfirm={(payload) => {
+            addItem({ ...payload, item: modalItem })
+            setModalItem(null)
+          }}
+        />
+      )}
     </div>
   )
 }
