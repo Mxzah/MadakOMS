@@ -133,3 +133,37 @@
     max-height: none;
   }
 }
+
+/* Phone: transform vertical side nav into horizontal scroll tabs */
+@media (max-width:640px){
+  /* On phone, the category bar sits above the menu and the whole bar sticks under the header when scrolling. */
+  .sideNav{
+    position: sticky;
+    top:80px; /* a bit lower than header so it's fully visible */
+    z-index:900;
+    background:#fff;
+  }
+  .sideNavInner{
+    position:relative;
+    top:0;
+    left:auto;
+    right:auto;
+    max-height:none;
+    overflow:visible;
+    background:#fff;
+    padding:6px 0;
+    margin:0;
+    box-shadow:0 1px 4px rgba(0,0,0,0.07);
+    width:100%;
+  }
+  /* Use normal page padding; no artificial offset needed since nav is no longer fixed */
+  .pageLayout{
+    padding:16px 16px 24px 16px;
+  }
+  .sideNavList{flex-direction:row;gap:20px;padding:0 12px 6px 12px;border-radius:0;background:transparent;overflow-x:auto;overflow-y:hidden;border-bottom:1px solid #e5e7eb;scrollbar-width:none}
+  .sideNavList::-webkit-scrollbar{display:none}
+  .sideNavHighlighter{position:absolute;left:0;bottom:0;top:auto;height:3px;width:40px;border-radius:2px;transform:translateX(0);transition:transform 200ms ease,width 200ms ease}
+  .categoryLink{padding:10px 4px;border-radius:0;background:transparent;font-weight:600;color:#111827}
+  .categoryLink:hover{background:transparent;color:#000}
+  .active{color:#111827}
+}

@@ -109,12 +109,14 @@ export default function RestaurantPage() {
     return { ...cat, items: catItems }
   }).filter((s) => s.items.length > 0)
 
-  // Scroll spy: compute active section by nearest header offset, with bottom snap
+  // Scroll spy: compute active section by header position, but only when the section
+  // title is close to the top rather than anywhere in the middle of the viewport.
   useEffect(() => {
     if (sections.length === 0) return
     if (typeof window === 'undefined') return
 
     const headerOffset = 120 // should match CSS scroll-margin-top intent
+    const activationRadius = 40 // px distance from headerOffset within which a section becomes "active"
 
     const updateActive = () => {
       const doc = document.documentElement
@@ -125,18 +127,21 @@ export default function RestaurantPage() {
         return
       }
 
-      let bestId = null
-      let bestTop = -Infinity
+      let bestId = activeCatId || null
+      let bestDistance = Infinity
+
       for (const s of sections) {
         const el = document.getElementById(`cat-${s.id}`)
         if (!el) continue
         const top = el.getBoundingClientRect().top
-        // prefer the section whose top is just above the header offset (very sensitive)
-        if (top <= headerOffset + 8 && top > bestTop) {
-          bestTop = top
+        const distance = Math.abs(top - headerOffset)
+        // Only consider this section if its title is close to the desired offset
+        if (distance <= activationRadius && distance < bestDistance) {
+          bestDistance = distance
           bestId = s.id
         }
       }
+
       if (bestId == null && sections[0]) bestId = sections[0].id
       if (bestId && bestId !== activeCatId) setActiveCatId(bestId)
     }
@@ -148,7 +153,7 @@ export default function RestaurantPage() {
       window.removeEventListener('scroll', updateActive)
       window.removeEventListener('resize', updateActive)
     }
-  }, [slug, sections.length])
+  }, [slug, sections.length, activeCatId])
 
   // Move the green highlighter to the active link
   useEffect(() => {
@@ -157,10 +162,33 @@ export default function RestaurantPage() {
     if (!nav || !hl || !activeCatId) return
     const link = nav.querySelector(`a[data-cat-id="${activeCatId}"]`)
     if (!link) return
-    const top = link.offsetTop - nav.scrollTop
-    const height = link.offsetHeight
-    hl.style.transform = `translateY(${top}px)`
-    hl.style.height = `${height}px`
+    const isMobile = typeof window !== 'undefined' && window.innerWidth <= 640
+    if (isMobile) {
+      // Move underline under the active tab
+      const left = link.offsetLeft
+      const width = link.offsetWidth
+      hl.style.transform = `translateX(${left}px)`
+      hl.style.width = `${width}px`
+      hl.style.height = '3px'
+
+      // Auto-scroll the horizontal list so the active tab stays in view / roughly centered
+      const navWidth = nav.clientWidth
+      const linkWidth = link.offsetWidth
+      const targetScrollLeft = Math.max(
+        0,
+        link.offsetLeft - (navWidth - linkWidth) / 2
+      )
+      nav.scrollTo({
+        left: targetScrollLeft,
+        behavior: 'smooth',
+      })
+    } else {
+      const top = link.offsetTop
+      const height = link.offsetHeight
+      hl.style.transform = `translateY(${top}px)`
+      hl.style.height = `${height}px`
+      hl.style.width = 'calc(100% - 16px)'
+    }
     // width fills container padding by CSS; avoid per-link width to keep centered
   }, [activeCatId, sections.length])
 

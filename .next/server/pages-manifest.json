@@ -2,12 +2,10 @@
   "/_app": "pages/_app.js",
   "/_error": "pages/_error.js",
   "/_document": "pages/_document.js",
-  "/checkout": "pages/checkout.js",
-  "/restaurant/[slug]": "pages/restaurant/[slug].js",
-  "/orders/[id]": "pages/orders/[id].js",
-  "/api/restaurant/[slug]/item/[id]/options": "pages/api/restaurant/[slug]/item/[id]/options.js",
-  "/api/restaurant/[slug]/item-categories": "pages/api/restaurant/[slug]/item-categories.js",
   "/confirmation": "pages/confirmation.js",
-  "/api/restaurant/[slug]/menu-categories": "pages/api/restaurant/[slug]/menu-categories.js",
-  "/api/restaurant/[slug]/items": "pages/api/restaurant/[slug]/items.js"
+  "/orders/[id]": "pages/orders/[id].js",
+  "/api/restaurant/[slug]/items": "pages/api/restaurant/[slug]/items.js",
+  "/api/restaurant/[slug]/item-categories": "pages/api/restaurant/[slug]/item-categories.js",
+  "/restaurant/[slug]": "pages/restaurant/[slug].js",
+  "/api/restaurant/[slug]/menu-categories": "pages/api/restaurant/[slug]/menu-categories.js"
 }
