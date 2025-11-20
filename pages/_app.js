@@ -1,4 +1,5 @@
 import '../styles/globals.css'
+import 'leaflet/dist/leaflet.css'
 import { ServiceProvider } from '../context/ServiceContext'
 import { CartProvider } from '../context/CartContext'
 import CartDrawer from '../components/CartDrawer'

@@ -140,6 +140,30 @@ export default function CheckoutPage() {
 
   // Submit handler: log order info to console
   const handlePlaceOrder = () => {
+    // Pre-submit validations across sections
+    // 1) Personal info
+    if (!validateSection1()) {
+      setOpenSection(1)
+      return
+    }
+    // 2) Shipping (delivery only)
+    if (service !== 'pickup' && !validateSection2()) {
+      setOpenSection(2)
+      return
+    }
+    // 2b) If scheduled delivery selected, require a slot
+    if (service !== 'pickup' && deliveryMode === 'scheduled' && !scheduleSlot) {
+      setShowScheduleModal(true)
+      setOpenSection(2)
+      return
+    }
+    // 3) Payment requirements
+    if (paymentMode === 'now' && !hasCard) {
+      setPaymentError('Ajoutez une carte pour payer maintenant.')
+      setOpenSection(service === 'pickup' ? 2 : 3)
+      return
+    }
+
     const items = (lines || []).map((l) => ({
       itemId: l.itemId ?? l.item?.id ?? null,
       title: l.item?.title || l.item?.name || `Article #${l.itemId ?? ''}`,
@@ -198,6 +222,24 @@ export default function CheckoutPage() {
       // eslint-disable-next-line no-console
       console.log('Order submission:', order)
     } catch {}
+
+    // Persist order temporarily and navigate to confirmation
+    try {
+      const orderId = 'CMD-' + Math.floor(Date.now() / 1000)
+      const enriched = { ...order, orderId, status: 'received' }
+      if (typeof window !== 'undefined') {
+        sessionStorage.setItem('madakoms:lastOrder', JSON.stringify(enriched))
+        try {
+          const raw = localStorage.getItem('madakoms:orders')
+          const list = Array.isArray(JSON.parse(raw)) ? JSON.parse(raw) : []
+          list.unshift(enriched)
+          localStorage.setItem('madakoms:orders', JSON.stringify(list))
+        } catch {
+          localStorage.setItem('madakoms:orders', JSON.stringify([enriched]))
+        }
+      }
+      router.push('/confirmation')
+    } catch {}
   }
 
   // Retrieve slug for editing items
@@ -212,6 +254,7 @@ export default function CheckoutPage() {
   const [codMethod, setCodMethod] = useState('cash') // 'cash' | 'card'
   const [showCardModal, setShowCardModal] = useState(false)
   const [errors, setErrors] = useState({})
+  const [paymentError, setPaymentError] = useState('')
   useEffect(() => {
     try {
       const s = typeof window !== 'undefined' ? localStorage.getItem('lastRestaurantSlug') : null
@@ -464,8 +507,8 @@ export default function CheckoutPage() {
           {openSection === idxPayment && (
             <>
               <div className={styles.segRow}>
-                <button type="button" className={`${styles.segBtn} ${paymentMode==='now' ? styles.segBtnActive : ''}`} onClick={()=>setPaymentMode('now')}>Payer maintenant</button>
-                <button type="button" className={`${styles.segBtn} ${paymentMode==='cod' ? styles.segBtnActive : ''}`} onClick={()=>setPaymentMode('cod')}>
+                <button type="button" className={`${styles.segBtn} ${paymentMode==='now' ? styles.segBtnActive : ''}`} onClick={()=>{ setPaymentMode('now'); setPaymentError('') }}>Payer maintenant</button>
+                <button type="button" className={`${styles.segBtn} ${paymentMode==='cod' ? styles.segBtnActive : ''}`} onClick={()=>{ setPaymentMode('cod'); setPaymentError('') }}>
                   {service === 'pickup' ? 'Payer sur place' : 'Payer à la livraison'}
                 </button>
               </div>
@@ -529,6 +572,9 @@ export default function CheckoutPage() {
                     <span>Carte de crédit / débit</span>
                     <span className={styles.paymentMethodArrow}>›</span>
                   </button>
+                  {(!hasCard && paymentError) && (
+                    <div className={styles.errorText} style={{marginTop:8}}>{paymentError}</div>
+                  )}
                 </div>
               )}
               {paymentMode === 'cod' && (
@@ -552,7 +598,20 @@ export default function CheckoutPage() {
                 </div>
               )}
               <div className={styles.sectionFooter}>
-                <button type="button" className={styles.nextBtn} onClick={() => requestOpenSection(idxSummary)}>Suivant</button>
+                <button
+                  type="button"
+                  className={styles.nextBtn}
+                  disabled={paymentMode==='now' && !hasCard}
+                  onClick={() => {
+                    if (paymentMode==='now' && !hasCard) {
+                      setPaymentError('Ajoutez une carte pour payer maintenant.')
+                      return
+                    }
+                    requestOpenSection(idxSummary)
+                  }}
+                >
+                  Suivant
+                </button>
               </div>
             </>
           )}
@@ -638,7 +697,30 @@ export default function CheckoutPage() {
           <div className={styles.deliveryModal} role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
             <button type="button" className={styles.modalClose} aria-label="Fermer" onClick={() => { setShowAddressModal(false); setAddrOpen(false); setAddressDraft(address) }}>×</button>
             <div className={styles.deliveryHeader}>Modifier l'adresse</div>
-            <form className={styles.deliveryForm} onSubmit={(e) => { e.preventDefault(); setAddress(addressDraft); setShowAddressModal(false); setAddrOpen(false); if (addressLat!=null && addressLng!=null){ setWithinArea(pointInPolygon(addressLat,addressLng)); } else { setWithinArea(null) } }}>
+            <form className={styles.deliveryForm} onSubmit={(e) => {
+              e.preventDefault()
+              let chosenLabel = addressDraft
+              let lat = addressLat
+              let lng = addressLng
+              // Auto-select the first recommended result if none was explicitly chosen
+              if ((lat == null || lng == null) && Array.isArray(addrResults) && addrResults.length > 0) {
+                const best = addrResults[0]
+                chosenLabel = best.label
+                lat = best.lat
+                lng = best.lng
+                setAddressDraft(best.label)
+                setAddressLat(best.lat)
+                setAddressLng(best.lng)
+              }
+              setAddress(chosenLabel)
+              setShowAddressModal(false)
+              setAddrOpen(false)
+              if (lat != null && lng != null) {
+                setWithinArea(pointInPolygon(lat, lng))
+              } else {
+                setWithinArea(null)
+              }
+            }}>
               <div className={styles.deliveryField} style={{ position:'relative' }}>
                 <label>Adresse</label>
                 <input
@@ -647,7 +729,7 @@ export default function CheckoutPage() {
                   value={addressDraft}
                   onFocus={() => setAddrOpen(true)}
                   onBlur={() => setTimeout(() => setAddrOpen(false), 150)}
-                  onChange={(e) => { setAddressDraft(e.target.value); setAddrOpen(true) }}
+                  onChange={(e) => { setAddressDraft(e.target.value); setAddrOpen(true); setAddressLat(null); setAddressLng(null) }}
                   placeholder="Numéro et rue, ville"
                 />
                 {(addrOpen && (addrLoading || addrResults.length > 0)) && (
@@ -721,6 +803,7 @@ export default function CheckoutPage() {
                 setLast4(number.slice(-4))
                 setHasCard(true)
                 setCardErrors({ number: '', cvc: '', exp: '', zip: '' })
+                setPaymentError('')
                 setShowCardModal(false)
               }}
             >
@@ -812,7 +895,7 @@ export default function CheckoutPage() {
                   <input
                     type="radio"
                     name="scheduleSlot"
-                    checked={scheduleSlot && scheduleSlot.start.getTime()===slot.start.getTime()}
+                    checked={scheduleSlot ? scheduleSlot.start.getTime()===slot.start.getTime() : false}
                     onChange={()=>setScheduleSlot(slot)}
                   />
                   <span>{slotLabel(slot)}</span>

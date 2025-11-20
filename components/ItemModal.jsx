@@ -16,6 +16,18 @@ export default function ItemModal({ item, slug, onClose, onConfirm, defaultSelec
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
 
+  // Lock body scroll while modal is open (mobile fix)
+  useEffect(() => {
+    const prevOverflow = document.body.style.overflow
+    const prevTouch = document.body.style.touchAction
+    document.body.style.overflow = 'hidden'
+    document.body.style.touchAction = 'none'
+    return () => {
+      document.body.style.overflow = prevOverflow
+      document.body.style.touchAction = prevTouch
+    }
+  }, [])
+
   useEffect(() => {
     let cancelled = false
     async function load() {

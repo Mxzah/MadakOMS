@@ -27,6 +27,16 @@
       "static/chunks/main.js",
       "static/chunks/pages/checkout.js"
     ],
+    "/confirmation": [
+      "static/chunks/webpack.js",
+      "static/chunks/main.js",
+      "static/chunks/pages/confirmation.js"
+    ],
+    "/orders/[id]": [
+      "static/chunks/webpack.js",
+      "static/chunks/main.js",
+      "static/chunks/pages/orders/[id].js"
+    ],
     "/restaurant/[slug]": [
       "static/chunks/webpack.js",
       "static/chunks/main.js",
