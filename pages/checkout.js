@@ -13,7 +13,7 @@ const CheckoutMap = dynamic(() => import('../components/CheckoutMap'), { ssr: fa
 export default function CheckoutPage() {
   const { subtotal, lines, updateAt, removeAt, clear, showGlobalLoading, hideGlobalLoading } = useCart()
   const router = useRouter()
-  const { service } = useService()
+  const { service, setService } = useService()
   const emptyRedirectChecked = useRef(false)
   const [firstName, setFirstName] = useState('')
   const [email, setEmail] = useState('')
@@ -39,6 +39,7 @@ export default function CheckoutPage() {
   const [settingsIssues, setSettingsIssues] = useState([])
   const [deliveryPolygons, setDeliveryPolygons] = useState([])
   const [operatingWindows, setOperatingWindows] = useState({})
+  const [allowedServices, setAllowedServices] = useState(['delivery', 'pickup'])
 
   useEffect(() => {
     if (!router.isReady) return
@@ -326,8 +327,10 @@ export default function CheckoutPage() {
         if (cancelled) return
         const polygons = extractPolygonsFromGeoJson(payload?.settings?.delivery_zones_geojson)
         const windows = normalizeOperatingWindows(payload?.settings?.hours_json)
+        const services = normalizeServiceTypes(payload?.settings?.service_types)
         setDeliveryPolygons(polygons)
         setOperatingWindows(windows)
+        setAllowedServices(services)
         const warnings = []
         if (!payload.settings) {
           warnings.push('Paramètres du restaurant introuvables. Configurez les réglages dans Supabase.')
@@ -342,6 +345,7 @@ export default function CheckoutPage() {
         setSettingsError('Impossible de charger les paramètres du restaurant. Veuillez réessayer plus tard.')
         setDeliveryPolygons([])
         setOperatingWindows({})
+        setAllowedServices(['delivery', 'pickup'])
         setSettingsIssues([])
       } finally {
         if (!cancelled) setSettingsLoading(false)
@@ -351,6 +355,12 @@ export default function CheckoutPage() {
     loadSettings()
     return () => { cancelled = true }
   }, [activeSlug])
+
+  useEffect(() => {
+    if (!allowedServices || allowedServices.length === 0) return
+    if (!service || allowedServices.includes(service)) return
+    setService(allowedServices[0])
+  }, [allowedServices, service, setService])
 
   const GROUP_LABELS = {
     size: 'Taille',
@@ -1290,4 +1300,27 @@ function buildSlotsForDate(date, windowsMap) {
   })
 
   return slots
+}
+
+function normalizeServiceTypes(rawValue) {
+  const fallback = ['delivery', 'pickup']
+  if (rawValue == null) return fallback
+
+  let parsed = rawValue
+  if (typeof rawValue === 'string') {
+    try {
+      parsed = JSON.parse(rawValue)
+    } catch {
+      parsed = rawValue
+    }
+  }
+
+  if (!Array.isArray(parsed)) parsed = [parsed]
+
+  const normalized = parsed
+    .map((entry) => (typeof entry === 'string' ? entry.trim().toLowerCase() : null))
+    .filter((entry) => entry === 'delivery' || entry === 'pickup')
+
+  const unique = Array.from(new Set(normalized))
+  return unique.length > 0 ? unique : fallback
 }

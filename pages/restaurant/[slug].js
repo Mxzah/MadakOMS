@@ -36,6 +36,14 @@ export default function RestaurantPage() {
   const resolvedRestaurantName = menuData?.restaurant?.name ?? restaurantName
   const resolvedSchedule = useMemo(() => normalizeWeeklyHours(menuData?.settings?.hours_json), [menuData?.settings?.hours_json])
   const resolvedAddress = buildAddressFromSettings(menuData?.settings) || 'Adresse non disponible'
+  const availableServices = useMemo(
+    () => normalizeServiceTypes(menuData?.settings?.service_types),
+    [menuData?.settings?.service_types]
+  )
+  const defaultService = useMemo(() => {
+    if (availableServices.includes('delivery')) return 'delivery'
+    return availableServices[0] || 'delivery'
+  }, [availableServices])
 
   useEffect(() => {
     if (!slug) return
@@ -185,7 +193,8 @@ export default function RestaurantPage() {
         name={resolvedRestaurantName}
         address={resolvedAddress}
         schedule={resolvedSchedule || {}}
-        defaultService="delivery"
+        availableServices={availableServices}
+        defaultService={defaultService}
       />
 
       {loadError && (
@@ -361,4 +370,24 @@ function formatClock(value) {
   const safeHour = hour.padStart(2, '0')
   const safeMinute = minute.padStart(2, '0')
   return `${safeHour}h${safeMinute}`
+}
+
+function normalizeServiceTypes(rawValue) {
+  const allowed = ['delivery', 'pickup']
+  if (rawValue == null) return allowed
+
+  let parsed = rawValue
+  if (typeof rawValue === 'string') {
+    const fromJson = parseJsonField(rawValue)
+    parsed = fromJson ?? rawValue
+  }
+
+  if (!Array.isArray(parsed)) parsed = [parsed]
+
+  const normalized = parsed
+    .map((entry) => (typeof entry === 'string' ? entry.trim().toLowerCase() : null))
+    .filter((entry) => allowed.includes(entry))
+
+  const unique = Array.from(new Set(normalized))
+  return unique.length > 0 ? unique : allowed
 }
