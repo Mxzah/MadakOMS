@@ -6,14 +6,15 @@ import { useCart } from '../context/CartContext'
 import styles from '../styles/CheckoutPage.module.css'
 import { useRouter } from 'next/router'
 import ItemModal from '../components/ItemModal'
-import { pointInPolygon } from '../data/deliveryArea'
+import { extractPolygonsFromGeoJson, pointInPolygons } from '../data/deliveryArea'
 
 const CheckoutMap = dynamic(() => import('../components/CheckoutMap'), { ssr: false })
 
 export default function CheckoutPage() {
-  const { subtotal, lines, updateAt } = useCart()
+  const { subtotal, lines, updateAt, removeAt, clear, showGlobalLoading, hideGlobalLoading } = useCart()
   const router = useRouter()
   const { service } = useService()
+  const emptyRedirectChecked = useRef(false)
   const [firstName, setFirstName] = useState('')
   const [email, setEmail] = useState('')
   const [phone, setPhone] = useState('')
@@ -31,18 +32,26 @@ export default function CheckoutPage() {
   const [showScheduleModal, setShowScheduleModal] = useState(false)
   const [scheduleDayIndex, setScheduleDayIndex] = useState(0) // index into remaining days
   const [scheduleSlot, setScheduleSlot] = useState(null) // { start: Date, end: Date }
+  const [isPlacingOrder, setIsPlacingOrder] = useState(false)
+  const [orderError, setOrderError] = useState('')
+  const [settingsLoading, setSettingsLoading] = useState(false)
+  const [settingsError, setSettingsError] = useState('')
+  const [settingsIssues, setSettingsIssues] = useState([])
+  const [deliveryPolygons, setDeliveryPolygons] = useState([])
+  const [operatingWindows, setOperatingWindows] = useState({})
 
-  // Restaurant hours placeholder (adjust as needed). null means closed.
-  // Keys: 0=Dimanche ... 6=Samedi
-  const restaurantHours = {
-    0: null,
-    1: { open: '09:30', close: '22:00' },
-    2: { open: '09:30', close: '22:00' },
-    3: { open: '09:30', close: '22:00' },
-    4: { open: '09:30', close: '22:00' },
-    5: { open: '09:30', close: '23:00' },
-    6: { open: '09:30', close: '23:00' },
-  }
+  useEffect(() => {
+    if (!router.isReady) return
+    if (emptyRedirectChecked.current) return
+    if (lines && lines.length > 0) {
+      emptyRedirectChecked.current = true
+      return
+    }
+    if ((!lines || lines.length === 0) && !isPlacingOrder) {
+      emptyRedirectChecked.current = true
+      router.replace('/').catch(() => {})
+    }
+  }, [lines?.length, router.isReady, isPlacingOrder, router])
 
   const dayNames = ['Dimanche','Lundi','Mardi','Mercredi','Jeudi','Vendredi','Samedi']
 
@@ -52,39 +61,17 @@ export default function CheckoutPage() {
     for (let d = 0; d < 7; d++) {
       const date = new Date(today.getFullYear(), today.getMonth(), today.getDate() + d)
       const weekday = date.getDay()
-      if (d === 0 || weekday >= today.getDay()) { // from today forward until end of week
-        if (restaurantHours[weekday]) list.push(date)
-      }
+      const windows = operatingWindows?.[weekday]
+      if (Array.isArray(windows) && windows.length > 0) list.push(date)
     }
     return list
-  }, [])
+  }, [operatingWindows])
 
-  const generateSlots = (date) => {
-    const weekday = date.getDay()
-    const hours = restaurantHours[weekday]
-    if (!hours) return []
-    const [openH, openM] = hours.open.split(':').map(Number)
-    const [closeH, closeM] = hours.close.split(':').map(Number)
-    const start = new Date(date.getFullYear(), date.getMonth(), date.getDate(), openH, openM)
-    const end = new Date(date.getFullYear(), date.getMonth(), date.getDate(), closeH, closeM)
-    const now = new Date()
-    const windowMinutes = 20
-    const slots = []
-    let cursor = start
-    while (cursor < end) {
-      const slotEnd = new Date(cursor.getTime() + windowMinutes * 60000)
-      if (slotEnd > end) break
-      // Only include future slots if today
-      if (date.toDateString() === now.toDateString()) {
-        if (slotEnd <= now) { cursor = slotEnd; continue }
-      }
-      slots.push({ start: new Date(cursor), end: slotEnd })
-      cursor = slotEnd
-    }
-    return slots
-  }
-
-  const currentSlots = useMemo(() => remainingWeekDays[scheduleDayIndex] ? generateSlots(remainingWeekDays[scheduleDayIndex]) : [], [remainingWeekDays, scheduleDayIndex])
+  const currentSlots = useMemo(() => {
+    const targetDate = remainingWeekDays[scheduleDayIndex]
+    if (!targetDate) return []
+    return buildSlotsForDate(targetDate, operatingWindows)
+  }, [remainingWeekDays, scheduleDayIndex, operatingWindows])
   const slotLabel = (slot) => {
     const fmt = (d) => d.toLocaleTimeString('fr-CA', { hour: '2-digit', minute: '2-digit', hour12: false })
     return `${fmt(slot.start)}-${fmt(slot.end)}`
@@ -96,6 +83,18 @@ export default function CheckoutPage() {
     const dateLabel = date.toLocaleDateString('fr-CA', { weekday: 'short', month: 'short', day: 'numeric' })
     return `${dateLabel} ${slotLabel(scheduleSlot)}`
   }, [deliveryMode, scheduleSlot, scheduleDayIndex, remainingWeekDays])
+
+  useEffect(() => {
+    if (remainingWeekDays.length === 0) {
+      setScheduleDayIndex(0)
+      setScheduleSlot(null)
+      return
+    }
+    if (scheduleDayIndex >= remainingWeekDays.length) {
+      setScheduleDayIndex(0)
+      setScheduleSlot(null)
+    }
+  }, [remainingWeekDays, scheduleDayIndex])
 
   // Reset selection if area becomes unavailable
   useEffect(() => {
@@ -113,9 +112,24 @@ export default function CheckoutPage() {
     if (instructions) parts.push(instructions.length > 40 ? instructions.slice(0,40) + '…' : instructions)
     return parts.join(' · ')
   }
+
+  const persistOrderLocally = (record) => {
+    if (typeof window === 'undefined') return
+    try {
+      window.sessionStorage.setItem('madakoms:lastOrder', JSON.stringify(record))
+    } catch {}
+    try {
+      const raw = window.localStorage.getItem('madakoms:orders')
+      const parsed = raw ? JSON.parse(raw) : []
+      const list = Array.isArray(parsed) ? parsed : []
+      list.unshift(record)
+      window.localStorage.setItem('madakoms:orders', JSON.stringify(list))
+    } catch {
+      try { window.localStorage.setItem('madakoms:orders', JSON.stringify([record])) } catch {}
+    }
+  }
   const [tipPreset, setTipPreset] = useState(0.18)
   const [tipCustom, setTipCustom] = useState('')
-  const [scheduled, setScheduled] = useState('Dès que possible')
 
   // Address autocomplete state
   const [addrOpen, setAddrOpen] = useState(false)
@@ -139,25 +153,21 @@ export default function CheckoutPage() {
   const total = useMemo(() => Math.round((subtotal + deliveryFee + taxes + tip) * 100) / 100, [subtotal, deliveryFee, taxes, tip])
 
   // Submit handler: log order info to console
-  const handlePlaceOrder = () => {
-    // Pre-submit validations across sections
-    // 1) Personal info
+  const handlePlaceOrder = async () => {
+    setOrderError('')
     if (!validateSection1()) {
       setOpenSection(1)
       return
     }
-    // 2) Shipping (delivery only)
     if (service !== 'pickup' && !validateSection2()) {
       setOpenSection(2)
       return
     }
-    // 2b) If scheduled delivery selected, require a slot
     if (service !== 'pickup' && deliveryMode === 'scheduled' && !scheduleSlot) {
       setShowScheduleModal(true)
       setOpenSection(2)
       return
     }
-    // 3) Payment requirements
     if (paymentMode === 'now' && !hasCard) {
       setPaymentError('Ajoutez une carte pour payer maintenant.')
       setOpenSection(service === 'pickup' ? 2 : 3)
@@ -172,6 +182,7 @@ export default function CheckoutPage() {
       total: l.total,
       selections: l.selections || null,
       selectionLabels: l.selectionLabels || null,
+      groupLabels: l.groupLabels || null,
     }))
 
     const schedule = (deliveryMode === 'scheduled' && scheduleSlot)
@@ -201,7 +212,7 @@ export default function CheckoutPage() {
       ? { mode: 'card_now', hasCard, cardBrand, last4 }
       : { mode: service === 'pickup' ? 'pay_in_store' : 'cod', method: codMethod }
 
-    const order = {
+    const baseOrder = {
       service,
       customer: { firstName, email, phone },
       delivery,
@@ -217,29 +228,55 @@ export default function CheckoutPage() {
       timestamp: new Date().toISOString(),
     }
 
-    // Print structured order info to console
     try {
       // eslint-disable-next-line no-console
-      console.log('Order submission:', order)
+      console.log('Order submission:', baseOrder)
     } catch {}
 
-    // Persist order temporarily and navigate to confirmation
+    showGlobalLoading()
+    setIsPlacingOrder(true)
     try {
-      const orderId = 'CMD-' + Math.floor(Date.now() / 1000)
-      const enriched = { ...order, orderId, status: 'received' }
-      if (typeof window !== 'undefined') {
-        sessionStorage.setItem('madakoms:lastOrder', JSON.stringify(enriched))
-        try {
-          const raw = localStorage.getItem('madakoms:orders')
-          const list = Array.isArray(JSON.parse(raw)) ? JSON.parse(raw) : []
-          list.unshift(enriched)
-          localStorage.setItem('madakoms:orders', JSON.stringify(list))
-        } catch {
-          localStorage.setItem('madakoms:orders', JSON.stringify([enriched]))
-        }
+      const response = await fetch(`/api/restaurant/${activeSlug}/orders`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify(baseOrder),
+      })
+      const payload = await response.json().catch(() => null)
+      if (!response.ok) {
+        throw new Error(payload?.error || 'Impossible de soumettre la commande.')
       }
-      router.push('/confirmation')
-    } catch {}
+      if (!payload) {
+        throw new Error('Réponse invalide du serveur.')
+      }
+
+      const orderId = payload.id || `CMD-${Math.floor(Date.now() / 1000)}`
+      const syncedAmounts = {
+        subtotal: payload.subtotal ?? baseOrder.amounts.subtotal,
+        deliveryFee: payload.deliveryFee ?? baseOrder.amounts.deliveryFee,
+        taxes: payload.taxes ?? baseOrder.amounts.taxes,
+        tip: payload.tipAmount ?? baseOrder.amounts.tip,
+        total: payload.total ?? baseOrder.amounts.total,
+      }
+      const persisted = {
+        ...baseOrder,
+        orderId,
+        status: payload.status || 'received',
+        amounts: syncedAmounts,
+        backendOrder: payload,
+        restaurantSlug: activeSlug,
+        timestamp: payload.placedAt || baseOrder.timestamp,
+      }
+
+      persistOrderLocally(persisted)
+      clear()
+      await router.push('/confirmation')
+    } catch (err) {
+      const message = err?.message || 'Erreur lors de la soumission de la commande.'
+      setOrderError(message)
+    } finally {
+      setIsPlacingOrder(false)
+      hideGlobalLoading()
+    }
   }
 
   // Retrieve slug for editing items
@@ -261,6 +298,59 @@ export default function CheckoutPage() {
       if (s) setSlug(s)
     } catch {}
   }, [])
+
+  const routeSlug = typeof router?.query?.slug === 'string' ? router.query.slug : null
+
+  useEffect(() => {
+    if (!router?.isReady) return
+    if (routeSlug && routeSlug !== slug) {
+      setSlug(routeSlug)
+    }
+  }, [router?.isReady, routeSlug, slug])
+
+  const editingSlug = routeSlug || slug
+  const activeSlug = editingSlug || 'sante-taouk'
+
+  useEffect(() => {
+    if (!activeSlug) return
+    let cancelled = false
+
+    async function loadSettings() {
+      setSettingsLoading(true)
+      setSettingsError('')
+      setSettingsIssues([])
+      try {
+        const res = await fetch(`/api/restaurant/${activeSlug}/menu`)
+        if (!res.ok) throw new Error('HTTP non OK')
+        const payload = await res.json()
+        if (cancelled) return
+        const polygons = extractPolygonsFromGeoJson(payload?.settings?.delivery_zones_geojson)
+        const windows = normalizeOperatingWindows(payload?.settings?.hours_json)
+        setDeliveryPolygons(polygons)
+        setOperatingWindows(windows)
+        const warnings = []
+        if (!payload.settings) {
+          warnings.push('Paramètres du restaurant introuvables. Configurez les réglages dans Supabase.')
+        } else {
+          if (polygons.length === 0) warnings.push('Aucune zone de livraison trouvée dans Supabase.')
+          if (Object.keys(windows).length === 0) warnings.push('Les horaires ne sont pas configurés pour la planification des livraisons.')
+        }
+        setSettingsIssues(warnings)
+      } catch (error) {
+        console.error('Checkout settings load failed.', error)
+        if (cancelled) return
+        setSettingsError('Impossible de charger les paramètres du restaurant. Veuillez réessayer plus tard.')
+        setDeliveryPolygons([])
+        setOperatingWindows({})
+        setSettingsIssues([])
+      } finally {
+        if (!cancelled) setSettingsLoading(false)
+      }
+    }
+
+    loadSettings()
+    return () => { cancelled = true }
+  }, [activeSlug])
 
   const GROUP_LABELS = {
     size: 'Taille',
@@ -284,10 +374,15 @@ export default function CheckoutPage() {
       nextErrors.address = 'Adresse de livraison requise.'
     }
     if (addressLat != null && addressLng != null) {
-      const inside = pointInPolygon(addressLat, addressLng)
-      setWithinArea(inside)
-      if (!inside) {
-        nextErrors.serviceArea = 'Adresse hors zone de livraison.'
+      if (!deliveryPolygons || deliveryPolygons.length === 0) {
+        nextErrors.serviceArea = 'Les zones de livraison ne sont pas configurées.'
+        setWithinArea(null)
+      } else {
+        const inside = pointInPolygons(addressLat, addressLng, deliveryPolygons)
+        setWithinArea(inside)
+        if (!inside) {
+          nextErrors.serviceArea = 'Adresse hors zone de livraison.'
+        }
       }
     } else if (address) {
       nextErrors.serviceArea = 'Sélectionnez une adresse valide dans la liste.'
@@ -305,6 +400,18 @@ export default function CheckoutPage() {
     if (service !== 'pickup' && target >= 2 && !validateSection2()) { setOpenSection(2); return }
     setOpenSection(target)
   }
+
+  useEffect(() => {
+    if (addressLat == null || addressLng == null) {
+      setWithinArea(null)
+      return
+    }
+    if (!deliveryPolygons || deliveryPolygons.length === 0) {
+      setWithinArea(null)
+      return
+    }
+    setWithinArea(pointInPolygons(addressLat, addressLng, deliveryPolygons))
+  }, [addressLat, addressLng, deliveryPolygons])
 
   // Autocomplete: query Photon API
   useEffect(() => {
@@ -356,6 +463,19 @@ export default function CheckoutPage() {
       <Header name="Vérifier votre commande" showCart={false} onBack={() => router.back()} />
       <main className={styles.wrapper}>
         <div className={styles.left}>
+        {settingsError && (
+          <div className={styles.settingsAlert} role="alert">{settingsError}</div>
+        )}
+        {settingsLoading && !settingsError && settingsIssues.length === 0 && (
+          <div className={styles.settingsAlert} role="status">Chargement des paramètres…</div>
+        )}
+        {settingsIssues.length > 0 && !settingsError && (
+          <div className={styles.settingsAlert} role="alert">
+            {settingsIssues.map((msg, idx) => (
+              <p key={`${msg}-${idx}`}>{msg}</p>
+            ))}
+          </div>
+        )}
         {/* 1. Account details */}
         <section className={styles.section}>
           <div className={styles.sectionHeader} onClick={() => requestOpenSection(1)} role="button" tabIndex={0}>
@@ -472,24 +592,13 @@ export default function CheckoutPage() {
                   onClick={() => { if (withinArea) { setDeliveryMode('scheduled'); setShowScheduleModal(true) } }}
                 >
                   <div style={{fontWeight:600}}>Planifier</div>
-                  <div style={{color: withinArea && deliveryMode==='scheduled' ? '#fff': withinArea ? '#374151':'#9ca3af',fontSize:12}}>{withinArea ? (scheduledSummary || 'Disponible') : 'Indisponible'}</div>
+                  <div style={{color: withinArea && deliveryMode==='scheduled' ? '#fff': withinArea ? '#374151':'#9ca3af',fontSize:12}}>
+                    {withinArea ? (scheduledSummary || (currentSlots.length > 0 ? 'Disponible' : 'Aucun créneau')) : 'Indisponible'}
+                  </div>
                 </button>
               </div>
 
               {/* Phone row removed as requested */}
-
-              {/* Tip block under shipping */}
-              <div className={styles.tipBlock}>
-                <div className={styles.tipHeader}>Pourboire</div>
-                <div className={styles.tipRow}>
-                  {[0.15, 0.18, 0.20, 0.25].map((p) => (
-                    <button key={p} type="button" className={`${styles.tipBtn} ${tipPreset === p && tipCustom === '' ? styles.tipActive : ''}`} onClick={() => { setTipPreset(p); setTipCustom('') }}>
-                      {Math.round(p*100)}%
-                    </button>
-                  ))}
-                  <input className={styles.tipCustom} type="number" min="0" step="0.01" placeholder="Montant personnalisé" value={tipCustom} onChange={(e) => setTipCustom(e.target.value)} />
-                </div>
-              </div>
 
               <div className={styles.sectionFooter}>
                 <button type="button" className={styles.nextBtn} onClick={() => { if (validateSection2()) setOpenSection(3) }}>Suivant</button>
@@ -634,7 +743,7 @@ export default function CheckoutPage() {
                       <div className={styles.cartMeta}>
                         <span className={styles.qty}>{l.qty} × ${l.unitPrice.toFixed(2)}</span>
                         <span className={styles.total}>${l.total.toFixed(2)}</span>
-                        {slug && (
+                        {editingSlug && (
                           <button type="button" className={styles.editLink} onClick={() => setEditIndex(idx)}>Modifier</button>
                         )}
                       </div>
@@ -652,7 +761,15 @@ export default function CheckoutPage() {
                           <div className={styles.optionsList}>
                             {entries.map(([groupId, sel]) => (
                               <div key={groupId} className={styles.optionLine}>
-                                <span className={styles.optionKey}>{GROUP_LABELS[groupId] ?? groupId}:</span>
+                                <span className={styles.optionKey}>{(() => {
+                                  const fromLine = l.groupLabels?.[groupId]
+                                  if (fromLine) return fromLine
+                                  const fromItem = Array.isArray(l.item?.modifiers)
+                                    ? l.item.modifiers.find((m) => String(m.id) === String(groupId))
+                                    : null
+                                  if (fromItem?.name || fromItem?.title) return fromItem.name || fromItem.title
+                                  return GROUP_LABELS[groupId] || groupId
+                                })()}:</span>
                                 <span className={styles.optionVal}>{(() => {
                                   const labels = l.selectionLabels?.[groupId]
                                   if (Array.isArray(labels) && labels.length) return labels.join(', ')
@@ -669,6 +786,33 @@ export default function CheckoutPage() {
               </ul>
             </div>
 
+            {service !== 'pickup' && (
+              <div className={`${styles.tipBlock} ${styles.tipBlockSummary}`}>
+                <div className={styles.tipHeader}>Pourboire</div>
+                <div className={styles.tipRow}>
+                  {[0.15, 0.18, 0.20, 0.25].map((p) => (
+                    <button
+                      key={p}
+                      type="button"
+                      className={`${styles.tipBtn} ${tipPreset === p && tipCustom === '' ? styles.tipActive : ''}`}
+                      onClick={() => { setTipPreset(p); setTipCustom('') }}
+                    >
+                      {Math.round(p * 100)}%
+                    </button>
+                  ))}
+                  <input
+                    className={styles.tipCustom}
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    placeholder="Montant personnalisé"
+                    value={tipCustom}
+                    onChange={(e) => setTipCustom(e.target.value)}
+                  />
+                </div>
+              </div>
+            )}
+
             <div className={styles.summary}>
               <div className={styles.sumRow}><span>Sous-total</span><span>${subtotal.toFixed(2)}</span></div>
               <div className={styles.sumRow}><span>Frais de livraison</span><span>${deliveryFee.toFixed(2)}</span></div>
@@ -681,15 +825,24 @@ export default function CheckoutPage() {
 
             <div className={styles.actions}>
               <button type="button" className={styles.secondary} onClick={() => router.back()}>Retour au menu</button>
-              <button type="button" className={styles.primary} onClick={handlePlaceOrder}>Passer la commande</button>
+              <button
+                type="button"
+                className={styles.primary}
+                onClick={handlePlaceOrder}
+                disabled={isPlacingOrder}
+                aria-busy={isPlacingOrder ? 'true' : 'false'}
+              >
+                {isPlacingOrder ? 'Envoi…' : 'Passer la commande'}
+              </button>
             </div>
+            {orderError && <div className={styles.errorText} role="alert" style={{ marginTop: 12 }}>{orderError}</div>}
             </>
             )}
           </section>
         )}
         </div>
         <aside className={styles.right}>
-          <CheckoutMap />
+          <CheckoutMap polygons={deliveryPolygons} />
         </aside>
       </main>
       {showAddressModal && (
@@ -716,7 +869,7 @@ export default function CheckoutPage() {
               setShowAddressModal(false)
               setAddrOpen(false)
               if (lat != null && lng != null) {
-                setWithinArea(pointInPolygon(lat, lng))
+                setWithinArea(pointInPolygons(lat, lng, deliveryPolygons))
               } else {
                 setWithinArea(null)
               }
@@ -948,20 +1101,193 @@ export default function CheckoutPage() {
           </div>
         </div>
       )}
-      {editIndex != null && lines[editIndex] && slug && (
+      {editIndex != null && lines[editIndex] && editingSlug && (
         <ItemModal
           item={lines[editIndex].item}
-          slug={slug}
+          slug={editingSlug}
           defaultSelections={lines[editIndex].selections}
           defaultQty={lines[editIndex].qty}
           confirmLabel="Mettre à jour"
+          allowZeroQty
           onClose={() => setEditIndex(null)}
-          onConfirm={({ itemId, qty, unitPrice, selections, selectionLabels }) => {
-            updateAt(editIndex, { itemId, qty, unitPrice, selections, selectionLabels, item: lines[editIndex].item })
+          onConfirm={({ itemId, qty, unitPrice, selections, selectionLabels, groupLabels }) => {
+            if (qty === 0) {
+              removeAt(editIndex)
+            } else {
+              updateAt(editIndex, { itemId, qty, unitPrice, selections, selectionLabels, groupLabels, item: lines[editIndex].item })
+            }
             setEditIndex(null)
           }}
         />
       )}
     </div>
   )
+}
+
+const DAY_INDEX_MAP = {
+  dimanche: 0,
+  sunday: 0,
+  lundi: 1,
+  monday: 1,
+  mardi: 2,
+  tuesday: 2,
+  mercredi: 3,
+  wednesday: 3,
+  jeudi: 4,
+  thursday: 4,
+  vendredi: 5,
+  friday: 5,
+  samedi: 6,
+  saturday: 6,
+}
+
+function normalizeOperatingWindows(hoursJson) {
+  const parsed = parseJsonField(hoursJson)
+  if (!parsed || typeof parsed !== 'object') return {}
+  const windows = {}
+
+  const assign = (key, value) => {
+    const index = dayKeyToIndex(key)
+    if (index == null) return
+    const segments = normalizeSegments(value)
+    if (segments.length > 0) {
+      windows[index] = segments
+    }
+  }
+
+  if (Array.isArray(parsed)) {
+    parsed.forEach((entry) => {
+      if (!entry) return
+      const key = entry.day ?? entry.name ?? entry.key
+      if (entry.slots) {
+        assign(key, entry.slots)
+      } else if (entry.value) {
+        assign(key, entry.value)
+      } else {
+        assign(key, entry)
+      }
+    })
+  } else {
+    Object.entries(parsed).forEach(([key, value]) => assign(key, value))
+  }
+
+  return windows
+}
+
+function dayKeyToIndex(key) {
+  if (key == null) return null
+  const normalized = String(key).trim().toLowerCase()
+  if (!normalized) return null
+  return Object.prototype.hasOwnProperty.call(DAY_INDEX_MAP, normalized) ? DAY_INDEX_MAP[normalized] : null
+}
+
+function normalizeSegments(value) {
+  if (!value) return []
+  if (Array.isArray(value)) {
+    return value.flatMap((segment) => normalizeSegments(segment)).filter(Boolean)
+  }
+  if (typeof value === 'string') {
+    const parts = value.split(/-|–|—|à|to/i).map((part) => part && part.trim()).filter(Boolean)
+    if (parts.length < 2) return []
+    const open = normalizeClock(parts[0])
+    const close = normalizeClock(parts[1])
+    return open && close ? [{ open, close }] : []
+  }
+  if (typeof value === 'object') {
+    if (value.closed === true || value.isClosed === true) return []
+    if (Array.isArray(value.slots)) return normalizeSegments(value.slots)
+    const open = normalizeClock(value.open ?? value.start ?? value.from)
+    const close = normalizeClock(value.close ?? value.end ?? value.to)
+    return open && close ? [{ open, close }] : []
+  }
+  return []
+}
+
+function parseJsonField(input) {
+  if (!input) return null
+  if (typeof input === 'string') {
+    try {
+      return JSON.parse(input)
+    } catch {
+      return null
+    }
+  }
+  if (typeof input === 'object') return input
+  return null
+}
+
+function normalizeClock(value) {
+  if (value == null) return null
+  if (value instanceof Date) {
+    return `${String(value.getHours()).padStart(2, '0')}:${String(value.getMinutes()).padStart(2, '0')}`
+  }
+  if (typeof value === 'number') {
+    const hour = Math.floor(value)
+    const minute = Math.round((value - hour) * 60)
+    return `${String(clamp(hour, 0, 23)).padStart(2, '0')}:${String(clamp(minute, 0, 59)).padStart(2, '0')}`
+  }
+  const str = String(value).trim()
+  if (!str) return null
+  const colonMatch = str.match(/(\d{1,2})\s*[:hH]\s*(\d{0,2})/)
+  if (colonMatch) {
+    const hour = clamp(Number(colonMatch[1]), 0, 23)
+    const minute = clamp(colonMatch[2] ? Number(colonMatch[2]) : 0, 0, 59)
+    return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`
+  }
+  const digits = str.replace(/\D/g, '')
+  if (!digits) return null
+  let hourDigits
+  let minuteDigits
+  if (digits.length <= 2) {
+    hourDigits = digits
+    minuteDigits = '00'
+  } else {
+    hourDigits = digits.slice(0, -2)
+    minuteDigits = digits.slice(-2)
+  }
+  const hour = clamp(Number(hourDigits), 0, 23)
+  const minute = clamp(Number(minuteDigits), 0, 59)
+  return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`
+}
+
+function clamp(value, min, max) {
+  if (Number.isNaN(value)) return min
+  return Math.min(Math.max(value, min), max)
+}
+
+function buildSlotsForDate(date, windowsMap) {
+  if (!(date instanceof Date)) return []
+  if (!windowsMap) return []
+  const segments = windowsMap[date.getDay()]
+  if (!Array.isArray(segments) || segments.length === 0) return []
+  const windowMinutes = 20
+  const now = new Date()
+  const isToday = date.toDateString() === now.toDateString()
+  const slots = []
+
+  segments.forEach(({ open, close }) => {
+    if (!open || !close) return
+    const [openH, openM = '0'] = open.split(':').map(Number)
+    const [closeH, closeM = '0'] = close.split(':').map(Number)
+    if (Number.isNaN(openH) || Number.isNaN(closeH)) return
+    let segmentStart = new Date(date.getFullYear(), date.getMonth(), date.getDate(), openH, Number.isNaN(openM) ? 0 : openM)
+    let segmentEnd = new Date(date.getFullYear(), date.getMonth(), date.getDate(), closeH, Number.isNaN(closeM) ? 0 : closeM)
+    if (segmentEnd <= segmentStart) {
+      segmentEnd = new Date(segmentEnd.getTime() + 24 * 60 * 60 * 1000)
+    }
+
+    let cursor = segmentStart
+    while (cursor < segmentEnd) {
+      const slotEnd = new Date(cursor.getTime() + windowMinutes * 60000)
+      if (slotEnd > segmentEnd) break
+      if (isToday && slotEnd <= now) {
+        cursor = slotEnd
+        continue
+      }
+      slots.push({ start: new Date(cursor), end: slotEnd })
+      cursor = slotEnd
+    }
+  })
+
+  return slots
 }

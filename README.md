@@ -52,3 +52,18 @@ Examples:
 - Code should be clean, reusable, and scalable
 - Focus on MVP first (core ordering functionality, admin dashboard)
 - Advanced features can be added later (payment, analytics, POS integration)
+
+## Supabase Setup
+1. Create a Supabase project and run the SQL in `DBStructure.txt` to provision tables/types.
+2. Grab your project URL, anon key, and service role key and copy `.env.example` to `.env.local`:
+	```bash
+	cp .env.example .env.local
+	```
+	Then fill in:
+	```
+	SUPABASE_URL=https://<project>.supabase.co
+	SUPABASE_ANON_KEY=public-anon-key
+	SUPABASE_SERVICE_ROLE_KEY=service-role-key
+	```
+3. Never expose the service role key to the browser; it is only used server-side through Next.js API routes.
+4. Enable Row Level Security on the tables and keep read policies permissive only for the data the public site should access (menus, restaurant info).

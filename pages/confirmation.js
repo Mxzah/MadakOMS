@@ -1,11 +1,13 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/router'
 import Header from '../components/Header'
+import { useCart } from '../context/CartContext'
 import styles from '../styles/ConfirmationPage.module.css'
 
 export default function ConfirmationPage() {
   const [order, setOrder] = useState(null)
   const router = useRouter()
+  const { showGlobalLoading, hideGlobalLoading } = useCart()
 
   useEffect(() => {
     try {
@@ -68,7 +70,21 @@ export default function ConfirmationPage() {
             </div>
           </div>
 
-          <button className={styles.trackBtn} type="button" onClick={()=>{ if(order?.orderId){ router.push(`/orders/${encodeURIComponent(order.orderId)}`) } }}>Suivre ma commande</button>
+          <button
+            className={styles.trackBtn}
+            type="button"
+            onClick={async () => {
+              if (!order?.orderId) return
+              showGlobalLoading()
+              try {
+                await router.push(`/orders/${encodeURIComponent(order.orderId)}`)
+              } finally {
+                hideGlobalLoading()
+              }
+            }}
+          >
+            Suivre ma commande
+          </button>
         </section>
 
         <aside className={styles.right}>

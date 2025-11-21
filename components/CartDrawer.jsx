@@ -11,7 +11,16 @@ function formatCAD(value) {
 }
 
 export default function CartDrawer() {
-  const { lines, subtotal, isOpen, closeCart, removeAt, updateAt } = useCart()
+  const {
+    lines,
+    subtotal,
+    isOpen,
+    closeCart,
+    removeAt,
+    updateAt,
+    showGlobalLoading,
+    hideGlobalLoading,
+  } = useCart()
   const router = useRouter()
   const { service } = useService()
   const slug = router?.query?.slug
@@ -53,15 +62,18 @@ export default function CartDrawer() {
             <ul className={styles.list}>
               {lines.map((l, idx) => (
                 <li key={l.key || idx} className={styles.item}>
-                  <div className={styles.itemMain}>
-                    <div className={styles.itemTitle}>{l.item?.title || l.item?.name || `Article #${l.itemId}`}</div>
-                    <div className={styles.itemMeta}>
-                      <span className={styles.qty}>{l.qty} × {formatCAD(l.unitPrice)}</span>
-                      <span className={styles.total}>{formatCAD(l.total)}</span>
-                      {slug && (
-                        <button className={styles.editBtn} onClick={() => onEdit(idx)} aria-label="Modifier l'article">Modifier</button>
-                      )}
-                      <button className={styles.removeBtn} onClick={() => removeAt(idx)} aria-label="Remove item">×</button>
+                  <div className={styles.itemHeader}>
+                    <div>
+                      <div className={styles.itemTitle}>{l.item?.title || l.item?.name || `Article #${l.itemId}`}</div>
+                      <div className={styles.itemMeta}>
+                        <span className={styles.unitPrice}>{formatCAD(l.unitPrice)} / unité</span>
+                        <span className={styles.metaDivider} aria-hidden>•</span>
+                        <span className={styles.qtyTag}>{l.qty} portion{l.qty > 1 ? 's' : ''}</span>
+                      </div>
+                    </div>
+                    <div className={styles.totalBlock}>
+                      <span className={styles.totalLabel}>Total</span>
+                      <span className={styles.totalValue}>{formatCAD(l.total)}</span>
                     </div>
                   </div>
                   {l.selections && (
@@ -78,7 +90,15 @@ export default function CartDrawer() {
                         <div className={styles.options}>
                           {entries.map(([groupId, sel]) => (
                             <div key={groupId} className={styles.optionLine}>
-                              <span className={styles.optionKey}>{GROUP_LABELS[groupId] ?? groupId}:</span>
+                              <span className={styles.optionKey}>{(() => {
+                                const fromLine = l.groupLabels?.[groupId]
+                                if (fromLine) return fromLine
+                                const fromItem = Array.isArray(l.item?.modifiers)
+                                  ? l.item.modifiers.find((m) => String(m.id) === String(groupId))
+                                  : null
+                                if (fromItem?.name || fromItem?.title) return fromItem.name || fromItem.title
+                                return GROUP_LABELS[groupId] || groupId
+                              })()}:</span>
                               <span className={styles.optionVal}>
                                 {(() => {
                                   const labels = l.selectionLabels?.[groupId]
@@ -92,6 +112,16 @@ export default function CartDrawer() {
                       )
                     })()
                   )}
+                  <div className={styles.itemActions}>
+                    {slug && (
+                      <button className={`${styles.actionBtn} ${styles.editBtn}`} onClick={() => onEdit(idx)} aria-label="Modifier l'article">
+                        Modifier
+                      </button>
+                    )}
+                    <button className={`${styles.actionBtn} ${styles.removeBtn}`} onClick={() => removeAt(idx)} aria-label="Remove item">
+                      Retirer
+                    </button>
+                  </div>
                 </li>
               ))}
             </ul>
@@ -105,11 +135,22 @@ export default function CartDrawer() {
           </div>
           <button
             className={styles.cta}
-            onClick={() => {
+            onClick={async () => {
+              if (lines.length === 0) return
               closeCart()
-              // Preserve service selection when navigating
+              showGlobalLoading()
               const query = service ? `?service=${encodeURIComponent(service)}` : ''
-              router.push(`/checkout${query}`)
+              const delay = new Promise((resolve) => setTimeout(resolve, 2000))
+              try {
+                await Promise.all([
+                  router.push(`/checkout${query}`),
+                  delay,
+                ])
+              } catch (error) {
+                console.error('Navigation vers la caisse échouée', error)
+              } finally {
+                hideGlobalLoading()
+              }
             }}
             disabled={lines.length === 0}
           >
@@ -124,9 +165,14 @@ export default function CartDrawer() {
             defaultSelections={lines[editIndex].selections}
             defaultQty={lines[editIndex].qty}
             confirmLabel="Mettre à jour"
+            allowZeroQty
             onClose={closeEdit}
-            onConfirm={({ itemId, qty, unitPrice, selections, selectionLabels }) => {
-              updateAt(editIndex, { itemId, qty, unitPrice, selections, selectionLabels, item: lines[editIndex].item })
+            onConfirm={({ itemId, qty, unitPrice, selections, selectionLabels, groupLabels }) => {
+              if (qty === 0) {
+                removeAt(editIndex)
+              } else {
+                updateAt(editIndex, { itemId, qty, unitPrice, selections, selectionLabels, groupLabels, item: lines[editIndex].item })
+              }
               setEditIndex(null)
             }}
           />

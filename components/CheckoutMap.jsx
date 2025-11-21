@@ -1,10 +1,10 @@
 import React, { useEffect, useRef } from 'react'
 import L from 'leaflet'
-import { deliveryPolygon } from '../data/deliveryArea'
 
-export default function CheckoutMap() {
+export default function CheckoutMap({ polygons = [] }) {
   const mapRef = useRef(null)
   const mapInstance = useRef(null)
+  const polygonsLayer = useRef(null)
 
   useEffect(() => {
     if (!mapRef.current || mapInstance.current) return
@@ -17,19 +17,37 @@ export default function CheckoutMap() {
       maxZoom: 19,
     }).addTo(map)
 
-    const poly = L.polygon(deliveryPolygon, { color: '#2563eb', weight: 2, fillOpacity: 0.08 })
-    poly.addTo(map)
-    try {
-      map.fitBounds(poly.getBounds(), { padding: [12, 12] })
-    } catch {
-      map.setView(deliveryPolygon[0] || [0, 0], 12)
-    }
-
     return () => {
       map.remove()
       mapInstance.current = null
     }
   }, [])
+
+  useEffect(() => {
+    const map = mapInstance.current
+    if (!map) return
+    if (polygonsLayer.current) {
+      map.removeLayer(polygonsLayer.current)
+      polygonsLayer.current = null
+    }
+    if (!Array.isArray(polygons) || polygons.length === 0) return
+
+    const layers = polygons
+      .filter((poly) => Array.isArray(poly) && poly.length >= 3)
+      .map((poly) => L.polygon(poly, { color: '#2563eb', weight: 2, fillOpacity: 0.08 }))
+
+    if (layers.length === 0) return
+
+    const group = L.featureGroup(layers)
+    polygonsLayer.current = group.addTo(map)
+    try {
+      map.fitBounds(group.getBounds(), { padding: [12, 12] })
+    } catch {
+      const latLngs = layers[0]?.getLatLngs?.()
+      const firstLatLng = Array.isArray(latLngs) ? latLngs[0]?.[0] : null
+      if (firstLatLng) map.setView(firstLatLng, 12)
+    }
+  }, [polygons])
 
   return <div ref={mapRef} style={{ width: '100%', height: '100%', borderRadius: 12 }} aria-label="Zone de livraison" />
 }

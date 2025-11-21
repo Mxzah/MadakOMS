@@ -1,14 +1,12 @@
 import { useRouter } from 'next/router'
-import { useEffect, useState, useRef } from 'react'
+import { useEffect, useMemo, useState, useRef } from 'react'
 import Header from '../../components/Header'
 import RestaurantInfo from '../../components/RestaurantInfo'
 import ItemCard from '../../components/ItemCard'
 import ItemModal from '../../components/ItemModal'
 import { useCart } from '../../context/CartContext'
-import itemsFallback from '../../data/items-sante-taouk.json'
-import menuCategoriesFallback from '../../data/menu_categories.json'
-import itemCategoriesFallback from '../../data/item_categories.json'
 import pageStyles from '../../styles/RestaurantPage.module.css'
+import { extractPolygonsFromGeoJson } from '../../data/deliveryArea'
 
 function formatSlug(slug) {
   if (!slug) return ''
@@ -26,88 +24,75 @@ export default function RestaurantPage() {
   const headerTitle = 'Préparez votre commande'
   const { addItem } = useCart()
 
-  const schedule = {
-    lundi: '11h00–20h00',
-    mardi: '11h00–20h00',
-    mercredi: '11h00–20h00',
-    jeudi: '11h00–21h00',
-    vendredi: '11h00–21h00',
-    samedi: '11h00–20h00',
-    dimanche: 'Fermé',
-  }
-  const address = '1905 105e Ave, Shawinigan-Sud, Quebec G9P 1N5'
-
-  const [items, setItems] = useState([])
-  const [categories, setCategories] = useState([])
-  const [itemCategories, setItemCategories] = useState([])
+  const [menuData, setMenuData] = useState(null)
+  const [flatItems, setFlatItems] = useState([])
   const [activeCatId, setActiveCatId] = useState(null)
   const [modalItem, setModalItem] = useState(null)
   const navListRef = useRef(null)
   const highlightRef = useRef(null)
+  const [loadError, setLoadError] = useState('')
+  const [configErrors, setConfigErrors] = useState([])
+
+  const resolvedRestaurantName = menuData?.restaurant?.name ?? restaurantName
+  const resolvedSchedule = useMemo(() => normalizeWeeklyHours(menuData?.settings?.hours_json), [menuData?.settings?.hours_json])
+  const resolvedAddress = buildAddressFromSettings(menuData?.settings) || 'Adresse non disponible'
 
   useEffect(() => {
     if (!slug) return
     let cancelled = false
-    // Persist slug for checkout page edits
-    try { if (typeof window !== 'undefined') localStorage.setItem('lastRestaurantSlug', String(slug)) } catch {}
-    async function loadAll() {
+    async function loadMenu() {
       try {
-        const [itemsRes, catsRes, mapRes] = await Promise.all([
-          fetch(`/api/restaurant/${slug}/items`),
-          fetch(`/api/restaurant/${slug}/menu-categories`),
-          fetch(`/api/restaurant/${slug}/item-categories`),
-        ])
-
-        if (!itemsRes.ok || !catsRes.ok || !mapRes.ok) throw new Error('HTTP non OK')
-
-        const [itemsData, catsData, mapData] = await Promise.all([
-          itemsRes.json(),
-          catsRes.json(),
-          mapRes.json(),
-        ])
-
-        if (!cancelled) {
-          setItems(Array.isArray(itemsData.items) ? itemsData.items : [])
-          setCategories(Array.isArray(catsData.categories) ? catsData.categories : [])
-          setItemCategories(Array.isArray(mapData.itemCategories) ? mapData.itemCategories : [])
+        setLoadError('')
+        const res = await fetch(`/api/restaurant/${slug}/menu`)
+        if (!res.ok) throw new Error('HTTP non OK')
+        const payload = await res.json()
+        const polygonsFromPayload = extractPolygonsFromGeoJson(payload?.settings?.delivery_zones_geojson)
+        if (cancelled) return
+        setMenuData(payload)
+        const settingsWarnings = []
+        if (!payload.settings) {
+          settingsWarnings.push('Paramètres du restaurant introuvables.')
+        } else {
+          if (!payload.settings.hours_json) settingsWarnings.push('Les horaires ne sont pas configurés dans Supabase.')
+          if (!payload.settings.delivery_zones_geojson) settingsWarnings.push('Les zones de livraison sont absentes dans Supabase.')
         }
-      } catch (e) {
-        if (!cancelled) {
-                  // Fallbacks locaux pour la démo
-                  if (slug === 'sante-taouk') {
-                    setItems(itemsFallback)
-                    setCategories(menuCategoriesFallback)
-                    setItemCategories(itemCategoriesFallback)
-                  } else {
-                    setItems([])
-                    setCategories([])
-                    setItemCategories([])
-                  }
+        if (!Array.isArray(payload.categories) || payload.categories.length === 0) {
+          settingsWarnings.push('Aucune catégorie active trouvée pour ce restaurant.')
         }
+        setConfigErrors(settingsWarnings)
+        const flattened = (payload.categories || []).flatMap((cat) =>
+          (cat.items || []).map((item) => ({ ...item, category_id: cat.id }))
+        )
+        setFlatItems(flattened)
+        setActiveCatId((payload.categories || [])[0]?.id || null)
+        try {
+          if (typeof window !== 'undefined') {
+            localStorage.setItem('lastRestaurantSlug', String(slug))
+            if (payload.settings) {
+              localStorage.setItem('lastRestaurantSettings', JSON.stringify(payload.settings))
+            }
+            if (polygonsFromPayload.length > 0) {
+              localStorage.setItem('lastDeliveryPolygons', JSON.stringify(polygonsFromPayload))
+            } else {
+              localStorage.removeItem('lastDeliveryPolygons')
+            }
+          }
+        } catch {}
+      } catch (error) {
+        console.error('Menu fetch failed.', error)
+        if (cancelled) return
+        setMenuData(null)
+        setFlatItems([])
+        setActiveCatId(null)
+        setConfigErrors([])
+        setLoadError('Impossible de charger les données du restaurant. Veuillez réessayer plus tard.')
       }
     }
-    loadAll()
+    loadMenu()
     return () => { cancelled = true }
   }, [slug])
 
-  // Prépare le regroupement: map catégorie -> Set d'item_id
-  const categoryToItemIds = new Map()
-  for (const ic of itemCategories) {
-    if (!categoryToItemIds.has(ic.menu_category_id)) {
-      categoryToItemIds.set(ic.menu_category_id, new Set())
-    }
-    categoryToItemIds.get(ic.menu_category_id).add(ic.item_id)
-  }
-
-  // Trie les catégories par sort_order
-  const sortedCategories = [...categories].sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
-
-  // Construit les sections avec items filtrés
-  const sections = sortedCategories.map((cat) => {
-    const ids = categoryToItemIds.get(cat.id) || new Set()
-    const catItems = items.filter((it) => ids.has(it.id))
-    return { ...cat, items: catItems }
-  }).filter((s) => s.items.length > 0)
+  const sections = (menuData?.categories || []).filter((section) => (section.items || []).length > 0)
 
   // Scroll spy: compute active section by header position, but only when the section
   // title is close to the top rather than anywhere in the middle of the viewport.
@@ -196,7 +181,26 @@ export default function RestaurantPage() {
     <div>
       <Header name={headerTitle} />
 
-      <RestaurantInfo name={restaurantName} address={address} schedule={schedule} defaultService="delivery" />
+      <RestaurantInfo
+        name={resolvedRestaurantName}
+        address={resolvedAddress}
+        schedule={resolvedSchedule || {}}
+        defaultService="delivery"
+      />
+
+      {loadError && (
+        <div className={pageStyles.errorNotice} role="alert">
+          {loadError}
+        </div>
+      )}
+
+      {configErrors.length > 0 && !loadError && (
+        <div className={pageStyles.errorNotice} role="alert">
+          {configErrors.map((msg, idx) => (
+            <p key={`${msg}-${idx}`}>{msg}</p>
+          ))}
+        </div>
+      )}
 
       <main className={pageStyles.pageLayout}>
         {/* Side categories nav */}
@@ -220,9 +224,9 @@ export default function RestaurantPage() {
 
         {/* Content sections */}
         <div className={pageStyles.pageContent}>
-          {sections.length === 0 && (
+          {sections.length === 0 && !loadError && (
             <section className={pageStyles.itemsGrid}>
-              {items.map((item) => (
+              {flatItems.map((item) => (
                 <ItemCard key={item.id} item={item} onAdd={(it) => setModalItem(it)} />
               ))}
             </section>
@@ -254,4 +258,107 @@ export default function RestaurantPage() {
       )}
     </div>
   )
+}
+
+function buildAddressFromSettings(settings) {
+  if (!settings) return ''
+  const parts = [
+    settings.address_line1,
+    settings.address_line2,
+    [settings.city, settings.province].filter(Boolean).join(', '),
+    settings.postal_code,
+    settings.country,
+  ].filter((part) => part && part.trim().length > 0)
+  return parts.join(', ').replace(/, ,/g, ',')
+}
+
+const WEEK_DAYS = ['lundi','mardi','mercredi','jeudi','vendredi','samedi','dimanche']
+const DAY_KEY_ALIASES = {
+  monday: 'lundi',
+  tuesday: 'mardi',
+  wednesday: 'mercredi',
+  thursday: 'jeudi',
+  friday: 'vendredi',
+  saturday: 'samedi',
+  sunday: 'dimanche',
+  dimanche: 'dimanche',
+  lundi: 'lundi',
+  mardi: 'mardi',
+  mercredi: 'mercredi',
+  jeudi: 'jeudi',
+  vendredi: 'vendredi',
+  samedi: 'samedi',
+}
+
+function normalizeWeeklyHours(hoursJson) {
+  const parsed = parseJsonField(hoursJson)
+  if (!parsed || typeof parsed !== 'object') return null
+  const normalized = {}
+  let hasValue = false
+
+  const assignValue = (key, value) => {
+    const normalizedKey = normalizeDayKey(key)
+    if (!normalizedKey) return
+    const label = formatHoursValue(value)
+    normalized[normalizedKey] = label
+    if (label && label.trim().length > 0) hasValue = true
+  }
+
+  if (Array.isArray(parsed)) {
+    parsed.forEach((entry) => {
+      if (!entry) return
+      if (entry.day) {
+        assignValue(entry.day, entry.value ?? entry.slots ?? entry)
+      }
+    })
+  } else {
+    Object.entries(parsed).forEach(([key, value]) => assignValue(key, value))
+  }
+
+  return hasValue ? normalized : null
+}
+
+function normalizeDayKey(key) {
+  if (!key) return null
+  const lowered = String(key).trim().toLowerCase()
+  if (!lowered) return null
+  if (WEEK_DAYS.includes(lowered)) return lowered
+  return DAY_KEY_ALIASES[lowered] || null
+}
+
+function parseJsonField(value) {
+  if (!value) return null
+  if (typeof value === 'string') {
+    try {
+      return JSON.parse(value)
+    } catch {
+      return null
+    }
+  }
+  if (typeof value === 'object') return value
+  return null
+}
+
+function formatHoursValue(raw) {
+  if (!raw) return 'Fermé'
+  if (typeof raw === 'string') return raw
+  const segments = Array.isArray(raw) ? raw : [raw]
+  const labels = segments
+    .map((segment) => {
+      if (!segment) return null
+      if (typeof segment === 'string') return segment
+      if (segment.label) return segment.label
+      if (segment.open && segment.close) return `${formatClock(segment.open)}–${formatClock(segment.close)}`
+      return null
+    })
+    .filter(Boolean)
+  return labels.length > 0 ? labels.join(', ') : 'Fermé'
+}
+
+function formatClock(value) {
+  if (typeof value !== 'string') return ''
+  const [hour = '00', minute = '00'] = value.split(':')
+  const safeHour = hour.padStart(2, '0')
+  const safeMinute = minute.padStart(2, '0')
+  return `${safeHour}h${safeMinute}`
 }

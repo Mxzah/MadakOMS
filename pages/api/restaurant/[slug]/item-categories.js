@@ -1,22 +1,28 @@
-import { promises as fs } from 'fs'
-import path from 'path'
+import { supabaseClient } from '../../../../lib/supabase/client'
+import { fetchRestaurantBySlug } from '../../../../lib/db/restaurants'
 
 export default async function handler(req, res) {
   const { slug } = req.query
 
   try {
-    // For now, the item-category mapping is global to the demo menu
-    const map = {
-      'sante-taouk': path.join(process.cwd(), 'data', 'item_categories.json'),
-    }
-    const filePath = map[slug]
-    if (!filePath) {
+    const restaurant = await fetchRestaurantBySlug(slug)
+    if (!restaurant) {
       return res.status(404).json({ error: 'Restaurant introuvable' })
     }
 
-    const file = await fs.readFile(filePath, 'utf8')
-    const data = JSON.parse(file)
-    return res.status(200).json({ itemCategories: data })
+    const { data, error } = await supabaseClient
+      .from('menu_items')
+      .select('id, category_id')
+      .eq('restaurant_id', restaurant.id)
+
+    if (error) throw error
+
+    const mapping = (data || []).map((item) => ({
+      item_id: item.id,
+      menu_category_id: item.category_id,
+    }))
+
+    return res.status(200).json({ itemCategories: mapping })
   } catch (err) {
     console.error('API item-categories error:', err)
     return res.status(500).json({ error: 'Impossible de charger le mapping item-catégorie' })

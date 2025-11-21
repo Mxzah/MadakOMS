@@ -1,6 +1,9 @@
 .wrapper{max-width:1200px;margin:0 auto;padding:24px;display:grid;grid-template-columns:1fr 460px;gap:24px}
 .left{display:flex;flex-direction:column;gap:16px}
 .right{display:block;height:700px;position:sticky;top:80px}
+.settingsAlert{border:1px solid #bfdbfe;background:#dbeafe;color:#1d4ed8;border-radius:10px;padding:10px 14px;line-height:1.4}
+.settingsAlert p{margin:0 0 4px 0}
+.settingsAlert p:last-child{margin-bottom:0}
 .h1{margin:0 0 6px 0;font-size:22px}
 .subtitle{margin:0 0 16px 0;color:#6b7280}
 .form{display:flex;flex-direction:column;gap:14px}
@@ -12,6 +15,7 @@
 .inputError{border-color:#ef4444 !important}
 .errorText{color:#b91c1c;font-size:12px;margin-top:4px}
 .tipBlock{margin-top:4px}
+.tipBlockSummary{margin-top:16px;padding-top:12px;border-top:1px dashed #e5e7eb}
 .tipHeader{font-weight:700;margin-bottom:6px}
 .tipRow{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 .tipBtn{background:#f3f4f6;border:1px solid #e5e7eb;padding:8px 10px;border-radius:8px;font-weight:600}

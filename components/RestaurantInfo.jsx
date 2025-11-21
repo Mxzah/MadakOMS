@@ -12,7 +12,7 @@ export default function RestaurantInfo({ name, address, schedule, defaultService
     return map[idx]
   }, [])
 
-  const todayValue = schedule?.[todayKey]
+  const todayValue = schedule?.[todayKey] ?? '—'
 
   const initials = useMemo(() => {
     if (!name) return 'R'

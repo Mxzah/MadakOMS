@@ -3,6 +3,7 @@ import 'leaflet/dist/leaflet.css'
 import { ServiceProvider } from '../context/ServiceContext'
 import { CartProvider } from '../context/CartContext'
 import CartDrawer from '../components/CartDrawer'
+import GlobalLoadingOverlay from '../components/GlobalLoadingOverlay'
 
 export default function MyApp({ Component, pageProps }) {
   return (
@@ -10,6 +11,7 @@ export default function MyApp({ Component, pageProps }) {
       <CartProvider>
         <Component {...pageProps} />
         <CartDrawer />
+        <GlobalLoadingOverlay />
       </CartProvider>
     </ServiceProvider>
   )
