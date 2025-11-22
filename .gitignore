@@ -46,3 +46,5 @@ desktop.ini
 # Ignore lockfiles only if desired (usually you should commit lockfiles)
 # package-lock.json
 # yarn.lock
+
+.next/
