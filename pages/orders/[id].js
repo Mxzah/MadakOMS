@@ -3,6 +3,7 @@ import { useRouter } from 'next/router'
 import Header from '../../components/Header'
 import styles from '../../styles/OrderTrackPage.module.css'
 import { supabaseClient } from '../../lib/supabase/client'
+import { formatPrice } from '../../lib/currency'
 
 const DELIVERY_FLOW = ['received', 'preparing', 'ready', 'enroute', 'completed']
 const PICKUP_FLOW = ['received', 'preparing', 'ready', 'completed']
@@ -121,6 +122,8 @@ export default function OrderTrackPage() {
   }, [steps, order?.status])
   const canSimulate = Boolean(order && order.status !== 'cancelled' && currentIdx < steps.length - 1)
 
+  const orderNumber = order?.order_number || order?.orderNumber || null
+  const orderNumberLabel = orderNumber ? `#${orderNumber}` : null
   const serviceLabel = order?.fulfillment === 'pickup' ? 'Cueillette' : 'Livraison'
   const paymentLabel = useMemo(() => formatPaymentLabel(order?.payments, order?.fulfillment), [order?.payments, order?.fulfillment])
   const deliveryLine = useMemo(() => {
@@ -140,7 +143,7 @@ export default function OrderTrackPage() {
       <Header name="Suivi de commande" showCart={false} />
       <main className={styles.wrapper}>
         <section className={styles.left}>
-          <h2 className={styles.title}>Commande {id || ''}</h2>
+          <h2 className={styles.title}>Commande {orderNumberLabel || id || ''}</h2>
           {order?.restaurant?.name && <p className={styles.subtitle}>{order.restaurant.name}</p>}
           {order && (
             <div className={`${styles.statusBadge} ${order.status === 'cancelled' ? styles.statusBadgeDanger : ''}`}>
@@ -199,6 +202,10 @@ export default function OrderTrackPage() {
 
               <div className={styles.metaGrid}>
                 <div className={styles.metaItem}>
+                  <span>Numéro</span>
+                  <strong>{orderNumberLabel || (orderNumber ? orderNumber : '—')}</strong>
+                </div>
+                <div className={styles.metaItem}>
                   <span>Commandée le</span>
                   <strong>{formatDateTime(order.placed_at)}</strong>
                 </div>
@@ -255,7 +262,7 @@ export default function OrderTrackPage() {
                 <div className={styles.row}><span>Paiement</span><strong>{paymentLabel}</strong></div>
                 <div className={styles.row}><span>Client</span><strong>{order.pickup_name || order.delivery_address?.address || '—'}</strong></div>
                 <div className={styles.row}><span>Téléphone</span><strong>{order.pickup_phone || '—'}</strong></div>
-                <div className={styles.row}><span>Total</span><strong>{formatCurrency(order.total)}</strong></div>
+                <div className={styles.row}><span>Total</span><strong>{formatPrice(order.total)}</strong></div>
               </div>
 
               <div className={styles.card}>
@@ -264,7 +271,7 @@ export default function OrderTrackPage() {
                   <div className={styles.itemRow} key={item.id}>
                     <div className={styles.itemName}>{item.name}</div>
                     <div className={styles.itemMeta}>Qté&nbsp;: {item.quantity}</div>
-                    <div className={styles.itemPrice}>{formatCurrency(item.total_price)}</div>
+                    <div className={styles.itemPrice}>{formatPrice(item.total_price)}</div>
                     {item.modifiers?.length > 0 && (
                       <div className={styles.modifierList}>
                         {item.modifiers.map((mod) => (
@@ -281,13 +288,13 @@ export default function OrderTrackPage() {
 
               <div className={styles.card}>
                 <div className={styles.cardTitle}>Résumé</div>
-                <div className={styles.row}><span>Sous-total</span><strong>{formatCurrency(order.subtotal)}</strong></div>
-                <div className={styles.row}><span>Frais de livraison</span><strong>{formatCurrency(order.delivery_fee)}</strong></div>
-                <div className={styles.row}><span>Taxes</span><strong>{formatCurrency(order.taxes)}</strong></div>
+                <div className={styles.row}><span>Sous-total</span><strong>{formatPrice(order.subtotal)}</strong></div>
+                <div className={styles.row}><span>Frais de livraison</span><strong>{formatPrice(order.delivery_fee)}</strong></div>
+                <div className={styles.row}><span>Taxes</span><strong>{formatPrice(order.taxes)}</strong></div>
                 {Number(order.tip_amount || 0) > 0 && (
-                  <div className={styles.row}><span>Pourboire</span><strong>{formatCurrency(order.tip_amount)}</strong></div>
+                  <div className={styles.row}><span>Pourboire</span><strong>{formatPrice(order.tip_amount)}</strong></div>
                 )}
-                <div className={styles.row}><span>Total</span><strong>{formatCurrency(order.total)}</strong></div>
+                <div className={styles.row}><span>Total</span><strong>{formatPrice(order.total)}</strong></div>
               </div>
             </>
           )}
@@ -295,11 +302,6 @@ export default function OrderTrackPage() {
       </main>
     </div>
   )
-}
-
-function formatCurrency(value) {
-  const num = Number(value || 0)
-  return new Intl.NumberFormat('fr-CA', { style: 'currency', currency: 'CAD' }).format(Number.isFinite(num) ? num : 0)
 }
 
 function formatDateTime(value, options = {}) {
@@ -362,6 +364,7 @@ function mapOrderPatch(row) {
   if (!row) return {}
   return {
     status: row.status,
+    order_number: row.order_number,
     fulfillment: row.fulfillment,
     scheduled_at: row.scheduled_at,
     placed_at: row.placed_at,

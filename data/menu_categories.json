@@ -1,9 +1,0 @@
-[
-  { "id": 1, "menu_id": 1, "name": "Poutines", "sort_order": 1 },
-  { "id": 2, "menu_id": 1, "name": "Plats principaux", "sort_order": 2 },
-  { "id": 3, "menu_id": 1, "name": "Wraps & Sandwichs", "sort_order": 3 },
-  { "id": 4, "menu_id": 1, "name": "Accompagnements", "sort_order": 4 },
-  { "id": 5, "menu_id": 1, "name": "Salades", "sort_order": 5 },
-  { "id": 6, "menu_id": 1, "name": "Desserts", "sort_order": 6 },
-  { "id": 7, "menu_id": 1, "name": "Boissons", "sort_order": 7 }
-]

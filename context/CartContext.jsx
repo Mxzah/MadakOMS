@@ -1,7 +1,13 @@
-import React, { createContext, useContext, useEffect, useMemo, useState } from 'react'
+import React, { createContext, useContext, useEffect, useMemo, useState, useCallback } from 'react'
 
 const CartContext = createContext(null)
 const STORAGE_KEY = 'madakoms:cart:v1'
+
+const normalizeSlug = (value) => {
+  if (value == null) return null
+  const normalized = String(value).trim().toLowerCase()
+  return normalized.length > 0 ? normalized : null
+}
 
 function deriveGroupLabelsFromItem(item) {
   if (!item || typeof item !== 'object') return {}
@@ -16,8 +22,10 @@ function deriveGroupLabelsFromItem(item) {
 
 export function CartProvider({ children }) {
   const [lines, setLines] = useState([])
+  const [restaurantSlug, setRestaurantSlugState] = useState(null)
   const [isOpen, setIsOpen] = useState(false)
   const [isGlobalLoading, setIsGlobalLoading] = useState(false)
+  const [checkoutBlock, setCheckoutBlock] = useState(null)
 
   // Hydrate from localStorage on mount (client-only)
   useEffect(() => {
@@ -26,8 +34,19 @@ export function CartProvider({ children }) {
       const raw = window.localStorage.getItem(STORAGE_KEY)
       if (!raw) return
       const parsed = JSON.parse(raw)
-      if (!Array.isArray(parsed)) return
-      const sanitized = parsed
+      const storedLines = Array.isArray(parsed)
+        ? parsed
+        : (Array.isArray(parsed?.lines) ? parsed.lines : [])
+      let storedSlug = Array.isArray(parsed) ? null : normalizeSlug(parsed?.restaurantSlug)
+      if (!storedSlug) {
+        try {
+          const legacySlug = window.localStorage.getItem('lastRestaurantSlug')
+          storedSlug = normalizeSlug(legacySlug)
+        } catch {
+          storedSlug = null
+        }
+      }
+      const sanitized = storedLines
         .filter((l) => l && typeof l === 'object')
         .map((l) => {
           const qty = Math.max(1, Number(l.qty) || 1)
@@ -43,6 +62,7 @@ export function CartProvider({ children }) {
           return { key, itemId, qty, unitPrice, total, selections, selectionLabels, groupLabels, item }
         })
       setLines(sanitized)
+      if (storedSlug) setRestaurantSlugState(storedSlug)
     } catch {
       // ignore corrupted storage
     }
@@ -52,14 +72,35 @@ export function CartProvider({ children }) {
   useEffect(() => {
     if (typeof window === 'undefined') return
     try {
-      const toStore = lines.map(({ key, itemId, qty, unitPrice, selections, selectionLabels, groupLabels, item }) => ({ key, itemId, qty, unitPrice, selections, selectionLabels, groupLabels, item }))
-      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(toStore))
+      const serializedLines = lines.map(({ key, itemId, qty, unitPrice, selections, selectionLabels, groupLabels, item }) => ({ key, itemId, qty, unitPrice, selections, selectionLabels, groupLabels, item }))
+      const payload = {
+        version: 2,
+        restaurantSlug: restaurantSlug || null,
+        lines: serializedLines,
+      }
+      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(payload))
     } catch {
       // storage quota or other error — ignore silently
     }
-  }, [lines])
+  }, [lines, restaurantSlug])
 
-  const addItem = ({ itemId, qty = 1, unitPrice = 0, total, selections = {}, selectionLabels, groupLabels = {}, item }) => {
+  const setRestaurantSlug = useCallback((nextSlug) => {
+    if (nextSlug == null || nextSlug === '') {
+      setRestaurantSlugState(null)
+      return
+    }
+    const normalized = normalizeSlug(nextSlug)
+    if (!normalized) return
+    setRestaurantSlugState((prev) => {
+      if (!prev) return normalized
+      if (prev === normalized) return prev
+      setLines((prevLines) => (prevLines.length > 0 ? [] : prevLines))
+      return normalized
+    })
+  }, [setLines, setRestaurantSlugState])
+
+  const addItem = ({ itemId, qty = 1, unitPrice = 0, total, selections = {}, selectionLabels, groupLabels = {}, item, restaurantSlug: itemRestaurantSlug }) => {
+    if (itemRestaurantSlug) setRestaurantSlug(itemRestaurantSlug)
     setLines((prev) => {
       const key = JSON.stringify({ itemId, selections, unitPrice })
       const idx = prev.findIndex((l) => l.key === key)
@@ -145,6 +186,8 @@ export function CartProvider({ children }) {
 
   const value = {
     lines,
+    restaurantSlug,
+    setRestaurantSlug,
     addItem,
     clear,
     removeAt,
@@ -158,6 +201,8 @@ export function CartProvider({ children }) {
     isGlobalLoading,
     showGlobalLoading: () => setIsGlobalLoading(true),
     hideGlobalLoading: () => setIsGlobalLoading(false),
+    checkoutBlock,
+    setCheckoutBlock,
   }
   return <CartContext.Provider value={value}>{children}</CartContext.Provider>
 }

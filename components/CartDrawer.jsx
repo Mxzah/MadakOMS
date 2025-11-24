@@ -4,11 +4,7 @@ import { useCart } from '../context/CartContext'
 import { useService } from '../context/ServiceContext'
 import ItemModal from './ItemModal'
 import { useRouter } from 'next/router'
-
-function formatCAD(value) {
-  if (typeof value !== 'number' || Number.isNaN(value)) return ''
-  return new Intl.NumberFormat('en-CA', { style: 'currency', currency: 'CAD' }).format(value)
-}
+import { formatPrice } from '../lib/currency'
 
 export default function CartDrawer() {
   const {
@@ -20,10 +16,12 @@ export default function CartDrawer() {
     updateAt,
     showGlobalLoading,
     hideGlobalLoading,
+    checkoutBlock,
   } = useCart()
   const router = useRouter()
   const { service } = useService()
-  const slug = router?.query?.slug
+  const slug = typeof router?.query?.slug === 'string' ? router.query.slug : null
+  const [storedSlug, setStoredSlug] = useState(null)
   const [editIndex, setEditIndex] = useState(null)
 
   const GROUP_LABELS = {
@@ -43,7 +41,23 @@ export default function CartDrawer() {
   const onEdit = (idx) => setEditIndex(idx)
   const closeEdit = () => setEditIndex(null)
 
+  useEffect(() => {
+    if (slug) {
+      setStoredSlug(slug)
+      try {
+        localStorage.setItem('lastRestaurantSlug', slug)
+      } catch {}
+      return
+    }
+    try {
+      const saved = typeof window !== 'undefined' ? localStorage.getItem('lastRestaurantSlug') : null
+      if (saved) setStoredSlug(saved)
+    } catch {}
+  }, [slug])
+
   if (!isOpen) return null
+
+  const checkoutDisabled = lines.length === 0 || Boolean(checkoutBlock)
 
   return (
     <div className={styles.backdrop} onClick={(e) => { if (e.target === e.currentTarget) closeCart() }}>
@@ -66,14 +80,14 @@ export default function CartDrawer() {
                     <div>
                       <div className={styles.itemTitle}>{l.item?.title || l.item?.name || `Article #${l.itemId}`}</div>
                       <div className={styles.itemMeta}>
-                        <span className={styles.unitPrice}>{formatCAD(l.unitPrice)} / unité</span>
+                        <span className={styles.unitPrice}>{formatPrice(l.unitPrice)} / unité</span>
                         <span className={styles.metaDivider} aria-hidden>•</span>
                         <span className={styles.qtyTag}>{l.qty} portion{l.qty > 1 ? 's' : ''}</span>
                       </div>
                     </div>
                     <div className={styles.totalBlock}>
                       <span className={styles.totalLabel}>Total</span>
-                      <span className={styles.totalValue}>{formatCAD(l.total)}</span>
+                      <span className={styles.totalValue}>{formatPrice(l.total)}</span>
                     </div>
                   </div>
                   {l.selections && (
@@ -131,19 +145,21 @@ export default function CartDrawer() {
         <footer className={styles.footer}>
           <div className={styles.subtotalRow}>
             <span>Sous-total</span>
-            <strong>{formatCAD(subtotal)}</strong>
+            <strong>{formatPrice(subtotal)}</strong>
           </div>
           <button
             className={styles.cta}
             onClick={async () => {
-              if (lines.length === 0) return
+              if (checkoutDisabled) return
               closeCart()
               showGlobalLoading()
               const query = service ? `?service=${encodeURIComponent(service)}` : ''
               const delay = new Promise((resolve) => setTimeout(resolve, 2000))
               try {
+                const checkoutSlug = slug || storedSlug
+                const targetPath = checkoutSlug ? `/restaurant/${checkoutSlug}/checkout${query}` : `/checkout${query}`
                 await Promise.all([
-                  router.push(`/checkout${query}`),
+                  router.push(targetPath),
                   delay,
                 ])
               } catch (error) {
@@ -152,10 +168,15 @@ export default function CartDrawer() {
                 hideGlobalLoading()
               }
             }}
-            disabled={lines.length === 0}
+            disabled={checkoutDisabled}
           >
             Continuer
           </button>
+          {checkoutBlock?.message && (
+            <div className={styles.blockNote} role="alert">
+              {checkoutBlock.message}
+            </div>
+          )}
         </footer>
 
         {editIndex != null && lines[editIndex] && slug && (

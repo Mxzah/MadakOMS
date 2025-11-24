@@ -2,9 +2,33 @@ import React, { useMemo, useState, useEffect } from 'react'
 import styles from '../styles/RestaurantInfo.module.css'
 import { useService } from '../context/ServiceContext'
 
-export default function RestaurantInfo({ name, address, schedule, defaultService = 'pickup', onServiceChange }) {
+export default function RestaurantInfo({
+  name,
+  address,
+  schedule,
+  defaultService = 'pickup',
+  availableServices = ['delivery', 'pickup'],
+  onServiceChange,
+}) {
   const [open, setOpen] = useState(false)
   const { service, setService } = useService()
+  const normalizedServices = useMemo(() => {
+    const allowed = ['delivery', 'pickup']
+    if (!Array.isArray(availableServices)) return allowed
+    const normalized = availableServices
+      .map((value) => (typeof value === 'string' ? value.trim().toLowerCase() : null))
+      .filter((value) => allowed.includes(value))
+    return Array.from(new Set(normalized))
+  }, [availableServices])
+  const resolvedDefaultService = useMemo(() => {
+    if (normalizedServices.length === 0) {
+      return defaultService === 'pickup' ? 'pickup' : 'delivery'
+    }
+    if (normalizedServices.includes(defaultService)) return defaultService
+    return normalizedServices[0]
+  }, [defaultService, normalizedServices])
+  const showDelivery = normalizedServices.includes('delivery')
+  const showPickup = normalizedServices.includes('pickup')
 
   const todayKey = useMemo(() => {
     const idx = new Date().getDay() // 0=dimanche
@@ -24,11 +48,12 @@ export default function RestaurantInfo({ name, address, schedule, defaultService
 
   // If a page passes defaultService (like sante-taouk), set it on mount
   useEffect(() => {
-    if (defaultService && (defaultService === 'pickup' || defaultService === 'delivery')) {
-      setService(defaultService)
-      onServiceChange && onServiceChange(defaultService)
+    if (normalizedServices.length === 0) return
+    if (resolvedDefaultService && (resolvedDefaultService === 'pickup' || resolvedDefaultService === 'delivery')) {
+      setService(resolvedDefaultService)
+      onServiceChange && onServiceChange(resolvedDefaultService)
     }
-  }, [defaultService])
+  }, [resolvedDefaultService, normalizedServices, onServiceChange, setService])
 
   return (
     <section className={styles.wrapper}>
@@ -61,32 +86,38 @@ export default function RestaurantInfo({ name, address, schedule, defaultService
             </svg>
           </button>
 
-          <div className={styles.serviceSwitch} role="tablist" aria-label="Type de service">
-            <button
-              type="button"
-              role="tab"
-              aria-selected={service === 'delivery'}
-              className={`${styles.pill} ${service === 'delivery' ? styles.active : ''}`}
-              onClick={() => {
-                setService('delivery')
-                onServiceChange && onServiceChange('delivery')
-              }}
-            >
-              Livraison
-            </button>
-            <button
-              type="button"
-              role="tab"
-              aria-selected={service === 'pickup'}
-              className={`${styles.pill} ${service === 'pickup' ? styles.active : ''}`}
-              onClick={() => {
-                setService('pickup')
-                onServiceChange && onServiceChange('pickup')
-              }}
-            >
-              Sur place
-            </button>
-          </div>
+          {(showDelivery || showPickup) && (
+            <div className={styles.serviceSwitch} role="tablist" aria-label="Type de service">
+              {showDelivery && (
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={service === 'delivery'}
+                  className={`${styles.pill} ${service === 'delivery' ? styles.active : ''}`}
+                  onClick={() => {
+                    setService('delivery')
+                    onServiceChange && onServiceChange('delivery')
+                  }}
+                >
+                  Livraison
+                </button>
+              )}
+              {showPickup && (
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={service === 'pickup'}
+                  className={`${styles.pill} ${service === 'pickup' ? styles.active : ''}`}
+                  onClick={() => {
+                    setService('pickup')
+                    onServiceChange && onServiceChange('pickup')
+                  }}
+                >
+                  Sur place
+                </button>
+              )}
+            </div>
+          )}
         </div>
       </div>
 

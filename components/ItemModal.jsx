@@ -1,10 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import styles from '../styles/ItemModal.module.css'
-
-function formatCAD(value) {
-  if (typeof value !== 'number' || Number.isNaN(value)) return ''
-  return new Intl.NumberFormat('en-CA', { style: 'currency', currency: 'CAD' }).format(value)
-}
+import { formatPrice } from '../lib/currency'
 
 export default function ItemModal({
   item,
@@ -136,7 +132,7 @@ export default function ItemModal({
 
   const actionText = (qty === 0 && allowZeroQty)
     ? 'Retirer du panier'
-    : `${confirmLabel || 'Ajouter au panier'} — ${formatCAD(price)}`
+    : `${confirmLabel || 'Ajouter au panier'} — ${formatPrice(price)}`
 
   return (
     <div className={styles.backdrop} onClick={onClose}>
@@ -155,7 +151,7 @@ export default function ItemModal({
             </div>
             <div className={styles.priceCard}>
               <span className={styles.priceHint}>À partir de</span>
-              <strong className={styles.priceValue}>{formatCAD(basePrice)}</strong>
+              <strong className={styles.priceValue}>{formatPrice(basePrice)}</strong>
               <p className={styles.priceNote}>Le prix peut varier selon les options.</p>
             </div>
           </aside>
@@ -193,7 +189,7 @@ export default function ItemModal({
                             onChange={() => setSingle(g.id, o.id)}
                           />
                           <span className={styles.choiceLabel}>{o.label}</span>
-                          {o.price_delta ? <span className={styles.choicePrice}>+{formatCAD(o.price_delta)}</span> : null}
+                          {o.price_delta ? <span className={styles.choicePrice}>+{formatPrice(o.price_delta)}</span> : null}
                         </label>
                       ))}
                     </div>
@@ -211,7 +207,7 @@ export default function ItemModal({
                               onChange={() => toggleMulti(g.id, o.id)}
                             />
                             <span className={styles.choiceLabel}>{o.label}</span>
-                            {o.price_delta ? <span className={styles.choicePrice}>+{formatCAD(o.price_delta)}</span> : null}
+                            {o.price_delta ? <span className={styles.choicePrice}>+{formatPrice(o.price_delta)}</span> : null}
                           </label>
                         )
                       })}

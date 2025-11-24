@@ -1,10 +1,6 @@
 import React from 'react'
 import styles from '../styles/ItemCard.module.css'
-
-function formatCAD(value) {
-  if (typeof value !== 'number') return value
-  return new Intl.NumberFormat('en-CA', { style: 'currency', currency: 'CAD' }).format(value)
-}
+import { formatPrice } from '../lib/currency'
 
 export default function ItemCard({ item, onAdd }) {
   const title = item.title ?? item.name
@@ -34,7 +30,7 @@ export default function ItemCard({ item, onAdd }) {
         {description && <p className={styles.desc}>{description}</p>}
 
         <div className={styles.metaRow}>
-          <span className={styles.price}>{formatCAD(price)}</span>
+          <span className={styles.price}>{formatPrice(price)}</span>
         </div>
 
         {/* Badge supprimé sur demande */

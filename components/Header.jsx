@@ -1,6 +1,7 @@
 import React from 'react'
 import styles from '../styles/Header.module.css'
 import { useCart } from '../context/CartContext'
+import { formatPrice } from '../lib/currency'
 
 export default function Header({ name = 'Restaurant', showCart = true, onBack = null }) {
   const { subtotal, count, openCart } = useCart()
@@ -31,7 +32,7 @@ export default function Header({ name = 'Restaurant', showCart = true, onBack = 
 
             <div className={styles.cartInfo}>
               <span className={styles.subtotal}>Sous-total</span>
-              <span className={styles.amount}>${subtotal.toFixed(2)}</span>
+              <span className={styles.amount}>{formatPrice(subtotal)}</span>
             </div>
           </div>
         </div>

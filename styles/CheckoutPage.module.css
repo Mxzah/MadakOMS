@@ -130,3 +130,9 @@
 .cardDeleteBtn{margin-left:8px;width:28px;height:28px;border-radius:999px;border:1px solid #e5e7eb;background:#fff;display:flex;align-items:center;justify-content:center;cursor:pointer}
 .cardDeleteBtn:hover{background:#fee2e2;border-color:#fca5a5}
 .cardDeleteIcon{width:16px;height:16px}
+.notFoundWrapper{max-width:720px;margin:40px auto;padding:0 16px}
+.notFoundCard{background:#fff;border:1px solid #e5e7eb;border-radius:16px;padding:32px;text-align:center;box-shadow:0 12px 30px rgba(15,23,42,.08)}
+.notFoundIcon{font-size:42px;margin-bottom:12px}
+.notFoundTitle{margin:0 0 12px 0;font-size:24px}
+.notFoundText{color:#475569;margin:0 auto 18px auto;max-width:420px;line-height:1.5}
+.notFoundBtn{background:var(--accent);color:#fff;border:none;border-radius:999px;padding:12px 24px;font-weight:700;cursor:pointer}

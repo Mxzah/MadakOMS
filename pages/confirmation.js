@@ -3,6 +3,7 @@ import { useRouter } from 'next/router'
 import Header from '../components/Header'
 import { useCart } from '../context/CartContext'
 import styles from '../styles/ConfirmationPage.module.css'
+import { formatPrice } from '../lib/currency'
 
 export default function ConfirmationPage() {
   const [order, setOrder] = useState(null)
@@ -52,6 +53,18 @@ export default function ConfirmationPage() {
     return order?.delivery?.address || '—'
   }, [order])
 
+  const displayOrderNumber = useMemo(() => {
+    if (!order) return null
+    return (
+      order.orderNumber ||
+      order.order_number ||
+      order.backendOrder?.orderNumber ||
+      order.backendOrder?.order_number ||
+      order.orderId ||
+      null
+    )
+  }, [order])
+
   return (
     <div>
       <Header name="Bon repas!" showCart={false} />
@@ -97,7 +110,7 @@ export default function ConfirmationPage() {
               </div>
               <div>
                 <div className={styles.metaKey}>Numéro</div>
-                <div className={styles.metaVal}>{order?.orderId || '—'}</div>
+                <div className={styles.metaVal}>{displayOrderNumber || '—'}</div>
               </div>
               <div>
                 <div className={styles.metaKey}>Paiement</div>
@@ -112,19 +125,19 @@ export default function ConfirmationPage() {
                     <div className={styles.itemTitle}>{l.title}</div>
                     <div className={styles.itemMeta}>Qté: {l.qty}</div>
                   </div>
-                  <div className={styles.itemTotal}>${Number(l.total || 0).toFixed(2)}</div>
+                  <div className={styles.itemTotal}>{formatPrice(l.total)}</div>
                 </div>
               ))}
             </div>
 
             <div className={styles.sum}>
-              <div className={styles.sumRow}><span>Sous-total</span><span>${Number(order?.amounts?.subtotal || 0).toFixed(2)}</span></div>
-              <div className={styles.sumRow}><span>{order?.service === 'pickup' ? 'Frais' : 'Frais de livraison'}</span><span>${Number(order?.amounts?.deliveryFee || 0).toFixed(2)}</span></div>
-              <div className={styles.sumRow}><span>Taxes</span><span>${Number(order?.amounts?.taxes || 0).toFixed(2)}</span></div>
+              <div className={styles.sumRow}><span>Sous-total</span><span>{formatPrice(order?.amounts?.subtotal)}</span></div>
+              <div className={styles.sumRow}><span>{order?.service === 'pickup' ? 'Frais' : 'Frais de livraison'}</span><span>{formatPrice(order?.amounts?.deliveryFee)}</span></div>
+              <div className={styles.sumRow}><span>Taxes</span><span>{formatPrice(order?.amounts?.taxes)}</span></div>
               {order?.service !== 'pickup' && (
-                <div className={styles.sumRow}><span>Pourboire</span><span>${Number(order?.amounts?.tip || 0).toFixed(2)}</span></div>
+                <div className={styles.sumRow}><span>Pourboire</span><span>{formatPrice(order?.amounts?.tip)}</span></div>
               )}
-              <div className={styles.sumTotal}><span>Total</span><strong>${Number(order?.amounts?.total || 0).toFixed(2)}</strong></div>
+              <div className={styles.sumTotal}><span>Total</span><strong>{formatPrice(order?.amounts?.total)}</strong></div>
             </div>
           </div>
         </aside>
