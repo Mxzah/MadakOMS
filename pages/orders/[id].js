@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/router'
 import Header from '../../components/Header'
 import styles from '../../styles/OrderTrackPage.module.css'
@@ -33,19 +33,17 @@ export default function OrderTrackPage() {
   const [order, setOrder] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
-  const [simError, setSimError] = useState('')
-  const [simulating, setSimulating] = useState(false)
+  const lastStatusRef = useRef(null)
 
-  useEffect(() => {
-    if (!id) return
-    const controller = new AbortController()
-
-    async function load() {
-      setLoading(true)
-      setError('')
-      setSimError('')
+  const loadOrder = useCallback(
+    async ({ signal, silent = false } = {}) => {
+      if (!id) return
+      if (!silent) {
+        setLoading(true)
+        setError('')
+      }
       try {
-        const res = await fetch(`/api/orders/${encodeURIComponent(id)}`, { signal: controller.signal })
+        const res = await fetch(`/api/orders/${encodeURIComponent(id)}`, { signal })
         const payload = await res.json().catch(() => null)
         if (!res.ok) {
           throw new Error(payload?.error || 'Impossible de charger la commande.')
@@ -53,36 +51,31 @@ export default function OrderTrackPage() {
         setOrder(payload)
       } catch (err) {
         if (err.name === 'AbortError') return
-        setError(err.message || 'Impossible de charger la commande.')
-        setOrder(null)
+        if (!silent) {
+          setError(err.message || 'Impossible de charger la commande.')
+          setOrder(null)
+        }
       } finally {
-        if (!controller.signal.aborted) setLoading(false)
+        if (!silent && (!signal || !signal.aborted)) {
+          setLoading(false)
+        }
       }
-    }
+    },
+    [id]
+  )
 
-    load()
-    return () => controller.abort()
-  }, [id])
-
-  const handleSimulate = async () => {
-    if (!id || !order) return
-    setSimError('')
-    setSimulating(true)
-    try {
-      const res = await fetch(`/api/orders/${encodeURIComponent(id)}/simulate`, { method: 'POST' })
-      const payload = await res.json().catch(() => null)
-      if (!res.ok) {
-        throw new Error(payload?.error || 'Simulation impossible.')
-      }
-      if (payload?.order) {
-        setOrder(payload.order)
-      }
-    } catch (err) {
-      setSimError(err.message || 'Simulation impossible.')
-    } finally {
-      setSimulating(false)
+  useEffect(() => {
+    if (!id) return
+    const controller = new AbortController()
+    loadOrder({ signal: controller.signal })
+    const interval = setInterval(() => {
+      loadOrder({ silent: true })
+    }, 60000)
+    return () => {
+      controller.abort()
+      clearInterval(interval)
     }
-  }
+  }, [id, loadOrder])
 
   useEffect(() => {
     if (!id) return undefined
@@ -120,8 +113,6 @@ export default function OrderTrackPage() {
     const idx = steps.indexOf(order.status)
     return idx === -1 ? 0 : idx
   }, [steps, order?.status])
-  const canSimulate = Boolean(order && order.status !== 'cancelled' && currentIdx < steps.length - 1)
-
   const orderNumber = order?.order_number || order?.orderNumber || null
   const orderNumberLabel = orderNumber ? `#${orderNumber}` : null
   const serviceLabel = order?.fulfillment === 'pickup' ? 'Cueillette' : 'Livraison'
@@ -138,6 +129,24 @@ export default function OrderTrackPage() {
     return formatDateTime(order.scheduled_at)
   }, [order])
 
+  useEffect(() => {
+    if (!order?.status) return
+    if (lastStatusRef.current && lastStatusRef.current !== order.status) {
+      const statusForEvent = order.status
+      setOrder((prev) => {
+        if (!prev) return prev
+        const events = prev.events || []
+        const alreadyLogged = events.some(
+          (event) => event.event_type === 'status_changed' && event.payload?.status === statusForEvent
+        )
+        if (alreadyLogged) return prev
+        const nextEvents = [...events, buildLocalStatusEvent(statusForEvent)]
+        return { ...prev, events: nextEvents }
+      })
+    }
+    lastStatusRef.current = order.status
+  }, [order?.status])
+
   return (
     <div>
       <Header name="Suivi de commande" showCart={false} />
@@ -150,24 +159,8 @@ export default function OrderTrackPage() {
               {statusLabel(order.status, order.fulfillment)}
             </div>
           )}
-          {order && (
-            <div className={styles.simulateRow}>
-              <button
-                type="button"
-                className={styles.simButton}
-                onClick={handleSimulate}
-                disabled={simulating || !canSimulate}
-              >
-                {simulating ? 'Simulation…' : 'Simuler la prochaine étape'}
-              </button>
-              <span className={styles.simHelper}>
-                {canSimulate ? 'Met à jour le statut et ajoute un événement.' : 'Statut final atteint.'}
-              </span>
-            </div>
-          )}
           {loading && <div className={styles.alert} role="status">Chargement en cours…</div>}
           {error && <div className={styles.alert} role="alert">{error}</div>}
-          {simError && <div className={styles.alert} role="alert">{simError}</div>}
           {!loading && !order && !error && <div className={styles.alert}>Commande introuvable.</div>}
 
           {order && (
@@ -378,5 +371,15 @@ function mapOrderPatch(row) {
     delivery_address: row.delivery_address,
     pickup_name: row.pickup_name,
     pickup_phone: row.pickup_phone,
+  }
+}
+
+function buildLocalStatusEvent(status) {
+  return {
+    id: `local-status-${status}-${Date.now()}`,
+    event_type: 'status_changed',
+    payload: { status, source: 'auto-refresh' },
+    created_at: new Date().toISOString(),
+    __local: true,
   }
 }

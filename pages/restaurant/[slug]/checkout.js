@@ -293,7 +293,7 @@ export default function CheckoutPage() {
 
       persistOrderLocally(persisted)
       clear()
-      await router.push('/confirmation')
+      await router.push('/approbation')
     } catch (err) {
       const message = err?.message || 'Erreur lors de la soumission de la commande.'
       setOrderError(message)
