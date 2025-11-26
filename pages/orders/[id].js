@@ -6,7 +6,7 @@ import { supabaseClient } from '../../lib/supabase/client'
 import { formatPrice } from '../../lib/currency'
 
 const DELIVERY_FLOW = ['received', 'preparing', 'ready', 'enroute', 'completed']
-const PICKUP_FLOW = ['received', 'preparing', 'ready', 'completed']
+const PICKUP_FLOW = ['received', 'preparing', 'ready', 'enroute', 'completed']
 
 function statusLabel(status, fulfillment) {
   switch (status) {
@@ -15,11 +15,13 @@ function statusLabel(status, fulfillment) {
     case 'preparing':
       return 'En préparation'
     case 'ready':
-      return fulfillment === 'pickup' ? 'Prête pour cueillette' : 'Prête'
+      return 'Prête'
+    case 'assigned':
+      return 'Prête'
     case 'enroute':
       return 'En route'
     case 'completed':
-      return fulfillment === 'pickup' ? 'Récupérée' : 'Livrée'
+      return 'Livrée'
     case 'cancelled':
       return 'Annulée'
     default:
@@ -100,6 +102,8 @@ export default function OrderTrackPage() {
     }
   }, [id])
 
+  const normalizedStatus = normalizeStatus(order?.status)
+
   const steps = useMemo(() => {
     const base = order?.fulfillment === 'pickup' ? PICKUP_FLOW : DELIVERY_FLOW
     if (order?.status === 'cancelled' && !base.includes('cancelled')) {
@@ -109,10 +113,10 @@ export default function OrderTrackPage() {
   }, [order?.fulfillment, order?.status])
 
   const currentIdx = useMemo(() => {
-    if (!order?.status) return 0
-    const idx = steps.indexOf(order.status)
+    if (!normalizedStatus) return 0
+    const idx = steps.indexOf(normalizedStatus)
     return idx === -1 ? 0 : idx
-  }, [steps, order?.status])
+  }, [steps, normalizedStatus])
   const orderNumber = order?.order_number || order?.orderNumber || null
   const orderNumberLabel = orderNumber ? `#${orderNumber}` : null
   const serviceLabel = order?.fulfillment === 'pickup' ? 'Cueillette' : 'Livraison'
@@ -130,9 +134,9 @@ export default function OrderTrackPage() {
   }, [order])
 
   useEffect(() => {
-    if (!order?.status) return
-    if (lastStatusRef.current && lastStatusRef.current !== order.status) {
-      const statusForEvent = order.status
+    if (!normalizedStatus) return
+    if (lastStatusRef.current && lastStatusRef.current !== normalizedStatus) {
+      const statusForEvent = normalizedStatus
       setOrder((prev) => {
         if (!prev) return prev
         const events = prev.events || []
@@ -144,8 +148,8 @@ export default function OrderTrackPage() {
         return { ...prev, events: nextEvents }
       })
     }
-    lastStatusRef.current = order.status
-  }, [order?.status])
+    lastStatusRef.current = normalizedStatus
+  }, [normalizedStatus])
 
   return (
     <div>
@@ -156,7 +160,7 @@ export default function OrderTrackPage() {
           {order?.restaurant?.name && <p className={styles.subtitle}>{order.restaurant.name}</p>}
           {order && (
             <div className={`${styles.statusBadge} ${order.status === 'cancelled' ? styles.statusBadgeDanger : ''}`}>
-              {statusLabel(order.status, order.fulfillment)}
+              {statusLabel(normalizedStatus, order.fulfillment)}
             </div>
           )}
           {loading && <div className={styles.alert} role="status">Chargement en cours…</div>}
@@ -382,4 +386,9 @@ function buildLocalStatusEvent(status) {
     created_at: new Date().toISOString(),
     __local: true,
   }
+}
+
+function normalizeStatus(status) {
+  if (status === 'assigned') return 'ready'
+  return status
 }
