@@ -1,9 +1,12 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import dynamic from 'next/dynamic'
 import { useRouter } from 'next/router'
 import Header from '../../components/Header'
 import styles from '../../styles/OrderTrackPage.module.css'
 import { supabaseClient } from '../../lib/supabase/client'
 import { formatPrice } from '../../lib/currency'
+
+const DriverMap = dynamic(() => import('../../components/DriverMap'), { ssr: false })
 
 const DELIVERY_FLOW = ['received', 'preparing', 'ready', 'enroute', 'completed']
 const PICKUP_FLOW = ['received', 'preparing', 'ready', 'enroute', 'completed']
@@ -22,6 +25,8 @@ function statusLabel(status, fulfillment) {
       return 'En route'
     case 'completed':
       return 'Livrée'
+    case 'failed':
+      return 'Échec'
     case 'cancelled':
       return 'Annulée'
     default:
@@ -102,8 +107,30 @@ export default function OrderTrackPage() {
     }
   }, [id])
 
+  useEffect(() => {
+    if (!order?.driver_id) return undefined
+    const channel = supabaseClient
+      .channel(`driver-locations-${order.driver_id}`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'driver_locations', filter: `staff_id=eq.${order.driver_id}` },
+        (payload) => {
+          if (!payload?.new) return
+          const location = normalizeDriverLocation(payload.new)
+          if (!location) return
+          setOrder((prev) => (prev ? { ...prev, driverLocation: location } : prev))
+        }
+      )
+      .subscribe()
+
+    return () => {
+      supabaseClient.removeChannel(channel)
+    }
+  }, [order?.driver_id])
+
   const normalizedStatus = normalizeStatus(order?.status)
 
+  const isFailed = normalizedStatus === 'failed'
   const steps = useMemo(() => {
     const base = order?.fulfillment === 'pickup' ? PICKUP_FLOW : DELIVERY_FLOW
     if (order?.status === 'cancelled' && !base.includes('cancelled')) {
@@ -112,11 +139,13 @@ export default function OrderTrackPage() {
     return base
   }, [order?.fulfillment, order?.status])
 
+  const timelineStatus = isFailed ? 'enroute' : normalizedStatus
+
   const currentIdx = useMemo(() => {
-    if (!normalizedStatus) return 0
-    const idx = steps.indexOf(normalizedStatus)
+    if (!timelineStatus) return 0
+    const idx = steps.indexOf(timelineStatus)
     return idx === -1 ? 0 : idx
-  }, [steps, normalizedStatus])
+  }, [steps, timelineStatus])
   const orderNumber = order?.order_number || order?.orderNumber || null
   const orderNumberLabel = orderNumber ? `#${orderNumber}` : null
   const serviceLabel = order?.fulfillment === 'pickup' ? 'Cueillette' : 'Livraison'
@@ -132,6 +161,69 @@ export default function OrderTrackPage() {
     if (!order.scheduled_at) return 'Dès que possible'
     return formatDateTime(order.scheduled_at)
   }, [order])
+
+  const driverUpdatedLabel = useMemo(() => {
+    if (!order?.driverLocation?.updated_at) return null
+    const date = new Date(order.driverLocation.updated_at)
+    if (Number.isNaN(date.getTime())) return null
+    return date.toLocaleString('fr-CA', { dateStyle: 'short', timeStyle: 'short' })
+  }, [order?.driverLocation?.updated_at])
+
+  const driverPosition = useMemo(() => {
+    if (!order?.driverLocation) return null
+    const lat = Number(order.driverLocation.lat)
+    const lng = Number(order.driverLocation.lng)
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null
+    return { lat, lng }
+  }, [order?.driverLocation])
+
+  const restaurantPosition = useMemo(() => {
+    const lat = Number(order?.restaurantLocation?.lat)
+    const lng = Number(order?.restaurantLocation?.lng)
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null
+    return { lat, lng }
+  }, [order?.restaurantLocation])
+
+  const destinationPosition = useMemo(() => {
+    const lat = Number(order?.delivery_address?.lat)
+    const lng = Number(order?.delivery_address?.lng)
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null
+    return { lat, lng }
+  }, [order?.delivery_address])
+
+  const [etaLabel, setEtaLabel] = useState('Non disponible')
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined
+    let intervalId
+    const updateEta = () => {
+      const seconds = computeDriverEtaSeconds({
+        status: order?.status,
+        driverPosition,
+        restaurantPosition,
+        destinationPosition,
+      })
+      if (!seconds) {
+        if (order?.scheduled_at) {
+          const date = new Date(order.scheduled_at)
+          if (!Number.isNaN(date.getTime())) {
+            setEtaLabel(date.toLocaleString('fr-CA', { dateStyle: 'short', timeStyle: 'short' }))
+            return
+          }
+        }
+        setEtaLabel('Non disponible')
+        return
+      }
+      const etaDate = new Date(Date.now() + seconds * 1000)
+      setEtaLabel(etaDate.toLocaleString('fr-CA', { dateStyle: 'short', timeStyle: 'short' }))
+    }
+
+    updateEta()
+    intervalId = window.setInterval(updateEta, 60000)
+    return () => {
+      if (intervalId) window.clearInterval(intervalId)
+    }
+  }, [order?.status, order?.scheduled_at, driverPosition, restaurantPosition, destinationPosition])
 
   useEffect(() => {
     if (!normalizedStatus) return
@@ -159,7 +251,7 @@ export default function OrderTrackPage() {
           <h2 className={styles.title}>Commande {orderNumberLabel || id || ''}</h2>
           {order?.restaurant?.name && <p className={styles.subtitle}>{order.restaurant.name}</p>}
           {order && (
-            <div className={`${styles.statusBadge} ${order.status === 'cancelled' ? styles.statusBadgeDanger : ''}`}>
+            <div className={`${styles.statusBadge} ${order.status === 'cancelled' || order.status === 'failed' ? styles.statusBadgeDanger : ''}`}>
               {statusLabel(normalizedStatus, order.fulfillment)}
             </div>
           )}
@@ -188,6 +280,7 @@ export default function OrderTrackPage() {
                             styles.connector,
                             index < currentIdx ? styles.connectorDone : '',
                             steps[index + 1] === 'cancelled' ? styles.connectorCancelled : '',
+                            isFailed && step === 'enroute' && steps[index + 1] === 'completed' ? styles.connectorFailed : '',
                           ].join(' ').trim()}
                           aria-hidden
                         />
@@ -196,6 +289,37 @@ export default function OrderTrackPage() {
                   )
                 })}
               </div>
+
+              {order?.driver_id && !['cancelled', 'failed', 'completed'].includes(order.status) && (
+                <div className={styles.driverSection}>
+                  <div className={styles.driverSectionHeader}>
+                    <div>
+                      <div className={styles.driverSectionTitle}>Position du livreur</div>
+                      {driverUpdatedLabel && (
+                        <div className={styles.driverSectionSubtitle}>
+                          Mise à jour {driverUpdatedLabel} · Heure d&apos;arrivée prévue : {etaLabel}
+                        </div>
+                      )}
+                    </div>
+                    {!driverPosition && (
+                      <span className={styles.driverSectionHelper}>Localisation en cours…</span>
+                    )}
+                  </div>
+                  <div className={styles.driverMapWrapper}>
+                    {driverPosition ? (
+                      <DriverMap driverPosition={driverPosition} destinationPosition={destinationPosition} />
+                    ) : (
+                      <div className={styles.driverMapEmpty}>Le livreur n’a pas encore partagé sa position.</div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {isFailed && (
+                <div className={styles.failedMessage} role="alert">
+                Message de notre équipe : {getFailedMessage(order) || "La commande a été marquée comme échouée."}
+                </div>
+              )}
 
               <div className={styles.metaGrid}>
                 <div className={styles.metaItem}>
@@ -345,6 +469,12 @@ function formatPaymentLabel(payments = [], fulfillment) {
 function formatEventTitle(event, fulfillment) {
   if (!event) return 'Mise à jour'
   if (event.event_type === 'status_changed' && event.payload?.status) {
+    if (event.payload.status === 'assigned') {
+      return 'Le livreur se dirige vers le restaurant'
+    }
+    if (event.payload.status === 'enroute') {
+      return 'Le livreur se dirige vers vous'
+    }
     return statusLabel(event.payload.status, fulfillment)
   }
   return event.event_type ? event.event_type.replace(/_/g, ' ') : 'Mise à jour'
@@ -352,8 +482,12 @@ function formatEventTitle(event, fulfillment) {
 
 function formatEventDescription(event) {
   if (!event?.payload) return ''
+  if (typeof event.payload.failure_reason === 'string' && event.payload.failure_reason.trim().length > 0) {
+    return event.payload.failure_reason
+  }
   if (typeof event.payload.message === 'string') return event.payload.message
   if (typeof event.payload.note === 'string') return event.payload.note
+  if (typeof event.payload.reason === 'string') return event.payload.reason
   return ''
 }
 
@@ -367,6 +501,8 @@ function mapOrderPatch(row) {
     placed_at: row.placed_at,
     completed_at: row.completed_at,
     cancelled_at: row.cancelled_at,
+    cancellation_reason: row.cancellation_reason,
+    failure_reason: row.failure_reason,
     subtotal: row.subtotal,
     delivery_fee: row.delivery_fee,
     tip_amount: row.tip_amount,
@@ -375,6 +511,7 @@ function mapOrderPatch(row) {
     delivery_address: row.delivery_address,
     pickup_name: row.pickup_name,
     pickup_phone: row.pickup_phone,
+    driver_id: row.driver_id,
   }
 }
 
@@ -391,4 +528,72 @@ function buildLocalStatusEvent(status) {
 function normalizeStatus(status) {
   if (status === 'assigned') return 'ready'
   return status
+}
+
+function getFailedMessage(order) {
+  if (!order || order.status !== 'failed') return ''
+  const events = Array.isArray(order.events) ? order.events.slice().reverse() : []
+  const failedEvent = events.find((event) => event.event_type === 'status_changed' && event.payload?.status === 'failed')
+  if (failedEvent?.payload) {
+    return (
+      failedEvent.payload.failure_reason ||
+      failedEvent.payload.message ||
+      failedEvent.payload.note ||
+      failedEvent.payload.reason ||
+      ''
+    )
+  }
+  return order.failure_reason || order.notes || ''
+}
+
+function normalizeDriverLocation(row) {
+  if (!row) return null
+  const lat = Number(row.lat)
+  const lng = Number(row.lng)
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null
+  return {
+    lat,
+    lng,
+    updated_at: row.updated_at || null,
+  }
+}
+
+const BASE_SPEED_KMH = 32
+const BUFFER_SECONDS = 120
+
+function computeDriverEtaSeconds({ status, driverPosition, restaurantPosition, destinationPosition }) {
+  if (!driverPosition || !destinationPosition) return null
+  const distanceToSeconds = (km) => (km / BASE_SPEED_KMH) * 3600
+
+  if (status === 'assigned') {
+    if (!restaurantPosition) return null
+    const legToRestaurant = haversineDistanceKm(driverPosition, restaurantPosition)
+    const legToCustomer = haversineDistanceKm(restaurantPosition, destinationPosition)
+    if (!Number.isFinite(legToRestaurant) || !Number.isFinite(legToCustomer)) return null
+    return Math.max(0, Math.round(distanceToSeconds(legToRestaurant + legToCustomer) + BUFFER_SECONDS))
+  }
+
+  if (status === 'enroute') {
+    const legToCustomer = haversineDistanceKm(driverPosition, destinationPosition)
+    if (!Number.isFinite(legToCustomer)) return null
+    return Math.max(0, Math.round(distanceToSeconds(legToCustomer) + BUFFER_SECONDS))
+  }
+
+  return null
+}
+
+function haversineDistanceKm(a, b) {
+  if (!a || !b) return NaN
+  const toRad = (value) => (value * Math.PI) / 180
+  const R = 6371
+  const dLat = toRad(b.lat - a.lat)
+  const dLng = toRad(b.lng - a.lng)
+  const lat1 = toRad(a.lat)
+  const lat2 = toRad(b.lat)
+
+  const sinDlat = Math.sin(dLat / 2)
+  const sinDlng = Math.sin(dLng / 2)
+  const aVal = sinDlat * sinDlat + sinDlng * sinDlng * Math.cos(lat1) * Math.cos(lat2)
+  const c = 2 * Math.atan2(Math.sqrt(aVal), Math.sqrt(1 - aVal))
+  return R * c
 }

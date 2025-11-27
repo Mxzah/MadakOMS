@@ -13,8 +13,10 @@
 .connector{width:48px;height:2px;background:#d6d6d6;border-radius:2px;flex:0 0 48px}
 .connectorDone{background:#2563eb}
 .connectorCancelled{background:#fecaca}
+.connectorFailed{background:#f87171}
 .statusBadge{display:inline-flex;align-items:center;gap:6px;padding:4px 12px;background:#ecfdf5;color:#065f46;font-weight:600;border-radius:999px;font-size:13px;margin-top:4px}
 .statusBadgeDanger{background:#fef2f2;color:#b91c1c}
+.failedMessage{margin-top:12px;padding:12px 14px;border:1px solid #fecaca;background:#fee2e2;color:#b91c1c;border-radius:10px}
 .simulateRow{margin-top:12px;display:flex;align-items:center;gap:12px;flex-wrap:wrap}
 .simButton{border:none;outline:none;background:#2563eb;color:#fff;font-weight:600;padding:8px 16px;border-radius:999px;cursor:pointer;transition:opacity .2s ease,transform .2s ease}
 .simButton:disabled{opacity:.5;cursor:not-allowed}
@@ -33,6 +35,13 @@
 .eventTitle{font-weight:600;color:#111}
 .eventDesc{color:#4b5563;font-size:14px;margin-top:2px}
 .emptyState{color:#6b7280;font-size:14px;border:1px dashed #e5e7eb;border-radius:8px;padding:10px 12px;margin-top:4px}
+.driverSection{margin-top:16px;border:1px solid #e2e8f0;border-radius:14px;padding:16px;background:#f8fafc}
+.driverSectionHeader{display:flex;justify-content:space-between;align-items:flex-end;gap:12px;margin-bottom:12px}
+.driverSectionTitle{font-weight:700;font-size:15px}
+.driverSectionSubtitle{font-size:13px;color:#64748b}
+.driverSectionHelper{font-size:13px;color:#94a3b8}
+.driverMapWrapper{width:100%;height:260px;border-radius:12px;overflow:hidden;background:#fff;border:1px solid #e2e8f0}
+.driverMapEmpty{display:flex;align-items:center;justify-content:center;height:100%;color:#94a3b8;font-size:14px}
 .right{position:sticky;top:16px;align-self:start;display:flex;flex-direction:column;gap:16px}
 .card{background:#fff;border:1px solid #eee;border-radius:12px;padding:14px 16px}
 .cardTitle{font-weight:800;margin-bottom:6px}

@@ -245,10 +245,6 @@ export default function CheckoutPage() {
       timestamp: new Date().toISOString(),
     }
 
-    try {
-      // eslint-disable-next-line no-console
-      console.log('Order submission:', baseOrder)
-    } catch {}
 
     showGlobalLoading()
     setIsPlacingOrder(true)

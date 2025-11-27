@@ -1,1 +1,1 @@
-self.__REACT_LOADABLE_MANIFEST="{}"
+self.__REACT_LOADABLE_MANIFEST='{"orders\\\\[id].js -> ../../components/DriverMap":{"id":8312,"files":["static/chunks/0b7b90cd.b3b26a53b6f92b09.js","static/chunks/312.15f65c74819bad89.js"]},"restaurant\\\\[slug]\\\\checkout.js -> ../../../components/CheckoutMap":{"id":2298,"files":["static/chunks/0b7b90cd.b3b26a53b6f92b09.js","static/chunks/298.10c9750d6e4354d3.js"]}}';
