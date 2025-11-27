@@ -1,9 +1,8 @@
 {
   "/_app": "pages/_app.js",
-  "/_error": "pages/_error.js",
   "/api/orders/[id]": "pages/api/orders/[id].js",
-  "/api/restaurant/[slug]/item-categories": "pages/api/restaurant/[slug]/item-categories.js",
   "/api/orders/[id]/simulate": "pages/api/orders/[id]/simulate.js",
+  "/api/restaurant/[slug]/item-categories": "pages/api/restaurant/[slug]/item-categories.js",
   "/api/restaurant/[slug]/item/[id]/options": "pages/api/restaurant/[slug]/item/[id]/options.js",
   "/api/restaurant/[slug]/items": "pages/api/restaurant/[slug]/items.js",
   "/api/restaurant/[slug]/menu-categories": "pages/api/restaurant/[slug]/menu-categories.js",
@@ -14,6 +13,7 @@
   "/orders/[id]": "pages/orders/[id].html",
   "/restaurant/[slug]": "pages/restaurant/[slug].html",
   "/restaurant/[slug]/checkout": "pages/restaurant/[slug]/checkout.html",
+  "/_error": "pages/_error.js",
   "/checkout": "pages/checkout.js",
   "/_document": "pages/_document.js",
   "/404": "pages/404.html"

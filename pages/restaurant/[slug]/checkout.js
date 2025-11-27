@@ -1155,14 +1155,22 @@ export default function CheckoutPage() {
               <div className={styles.deliveryField}>
                 <label>Options de dépôt</label>
                 <div className={styles.radioGroup}>
-                  <label className={styles.radioLine}>
-                    <input type="radio" name="dropOption" checked={dropOption==='hand'} onChange={() => setDropOption('hand')} />
+                  <button
+                    type="button"
+                    className={`${styles.dropOptionBtn} ${dropOption === 'hand' ? styles.dropOptionBtnActive : ''}`}
+                    onClick={() => setDropOption('hand')}
+                  >
+                    <span className={styles.dropOptionCheck}>{dropOption === 'hand' ? '✓' : ''}</span>
                     <span>Remettre en main propre</span>
-                  </label>
-                  <label className={styles.radioLine}>
-                    <input type="radio" name="dropOption" checked={dropOption==='door'} onChange={() => setDropOption('door')} />
+                  </button>
+                  <button
+                    type="button"
+                    className={`${styles.dropOptionBtn} ${dropOption === 'door' ? styles.dropOptionBtnActive : ''}`}
+                    onClick={() => setDropOption('door')}
+                  >
+                    <span className={styles.dropOptionCheck}>{dropOption === 'door' ? '✓' : ''}</span>
                     <span>Laisser à la porte</span>
-                  </label>
+                  </button>
                 </div>
               </div>
               <div className={styles.deliveryField}>
