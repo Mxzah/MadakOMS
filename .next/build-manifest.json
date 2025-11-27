@@ -5,8 +5,8 @@
   "devFiles": [],
   "ampDevFiles": [],
   "lowPriorityFiles": [
-    "static/SKPPY_Xn9v4ySmzcMLJZV/_buildManifest.js",
-    "static/SKPPY_Xn9v4ySmzcMLJZV/_ssgManifest.js"
+    "static/Jdg6SmGt_ssPa8-p0jYu4/_buildManifest.js",
+    "static/Jdg6SmGt_ssPa8-p0jYu4/_ssgManifest.js"
   ],
   "rootMainFiles": [],
   "pages": {
@@ -64,7 +64,7 @@
       "static/chunks/framework-7a7e500878b44665.js",
       "static/chunks/main-91b0136e68d72f0b.js",
       "static/css/5fcc9505af197476.css",
-      "static/chunks/pages/restaurant/[slug]/checkout-18e84e99df4f6da2.js"
+      "static/chunks/pages/restaurant/[slug]/checkout-82e46f7630d10035.js"
     ]
   },
   "ampFirstPages": []

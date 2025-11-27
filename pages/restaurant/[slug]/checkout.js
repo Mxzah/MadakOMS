@@ -41,6 +41,8 @@ export default function CheckoutPage() {
   const [deliveryPolygons, setDeliveryPolygons] = useState([])
   const [operatingWindows, setOperatingWindows] = useState({})
   const [allowedServices, setAllowedServices] = useState(['delivery', 'pickup'])
+  const [paymentOptionsByService, setPaymentOptionsByService] = useState(null)
+  const [deliveryAlternatives, setDeliveryAlternatives] = useState(null)
   const [notFound, setNotFound] = useState(false)
 
   useEffect(() => {
@@ -185,10 +187,30 @@ export default function CheckoutPage() {
       setOpenSection(2)
       return
     }
-    if (paymentMode === 'now' && !hasCard) {
-      setPaymentError('Ajoutez une carte pour payer maintenant.')
-      setOpenSection(service === 'pickup' ? 2 : 3)
-      return
+    // Validate payment options
+    if (paymentMode === 'now') {
+      if (!availablePaymentOptions.card_online) {
+        setPaymentError('Le paiement en ligne n\'est pas disponible pour ce type de commande.')
+        setOpenSection(service === 'pickup' ? 2 : 3)
+        return
+      }
+      if (!hasCard) {
+        setPaymentError('Ajoutez une carte pour payer maintenant.')
+        setOpenSection(service === 'pickup' ? 2 : 3)
+        return
+      }
+    }
+    if (paymentMode === 'cod') {
+      if (codMethod === 'cash' && !availablePaymentOptions.cash) {
+        setPaymentError('Le paiement en espèces n\'est pas disponible pour ce type de commande.')
+        setOpenSection(service === 'pickup' ? 2 : 3)
+        return
+      }
+      if (codMethod === 'card' && !availablePaymentOptions.card_terminal) {
+        setPaymentError('Le paiement par carte terminal n\'est pas disponible pour ce type de commande.')
+        setOpenSection(service === 'pickup' ? 2 : 3)
+        return
+      }
     }
 
     const items = (lines || []).map((l) => ({
@@ -353,6 +375,11 @@ export default function CheckoutPage() {
             setDeliveryPolygons([])
             setOperatingWindows({})
             setAllowedServices(['delivery', 'pickup'])
+            setPaymentOptionsByService({
+              delivery: ['card_online', 'card_terminal', 'cash'],
+              pickup: ['card_online', 'card_terminal', 'cash'],
+            })
+            setDeliveryAlternatives(null)
             setSettingsIssues([])
           }
           return
@@ -363,9 +390,13 @@ export default function CheckoutPage() {
         const polygons = extractPolygonsFromGeoJson(payload?.settings?.delivery_zones_geojson)
         const windows = normalizeOperatingWindows(payload?.settings?.hours_json)
         const services = normalizeServiceTypes(payload?.settings?.service_types)
+        const paymentOptions = normalizePaymentOptionsByService(payload?.settings?.payment_options_by_service)
+        const alternatives = normalizeDeliveryAlternatives(payload?.settings?.delivery_alternatives)
         setDeliveryPolygons(polygons)
         setOperatingWindows(windows)
         setAllowedServices(services)
+        setPaymentOptionsByService(paymentOptions)
+        setDeliveryAlternatives(alternatives)
         const warnings = []
         if (!payload.settings) {
           warnings.push('Paramètres du restaurant introuvables. Configurez les réglages dans Supabase.')
@@ -381,6 +412,11 @@ export default function CheckoutPage() {
         setDeliveryPolygons([])
         setOperatingWindows({})
         setAllowedServices(['delivery', 'pickup'])
+        setPaymentOptionsByService({
+          delivery: ['card_online', 'card_terminal', 'cash'],
+          pickup: ['card_online', 'card_terminal', 'cash'],
+        })
+        setDeliveryAlternatives(null)
         setSettingsIssues([])
       } finally {
         if (!cancelled) setSettingsLoading(false)
@@ -396,6 +432,48 @@ export default function CheckoutPage() {
     if (!service || allowedServices.includes(service)) return
     setService(allowedServices[0])
   }, [allowedServices, service, setService])
+
+  // Get available payment options for current service
+  const availablePaymentOptions = useMemo(() => {
+    if (!paymentOptionsByService || !service) {
+      return {
+        card_online: true,
+        card_terminal: true,
+        cash: true,
+      }
+    }
+    const options = paymentOptionsByService[service] || []
+    return {
+      card_online: options.includes('card_online'),
+      card_terminal: options.includes('card_terminal'),
+      cash: options.includes('cash'),
+    }
+  }, [paymentOptionsByService, service])
+
+  // Reset payment mode if current selection is not available
+  useEffect(() => {
+    if (!paymentOptionsByService) return
+    const options = availablePaymentOptions
+
+    // If 'now' (card_online) is not available, switch to 'cod'
+    if (paymentMode === 'now' && !options.card_online) {
+      setPaymentMode('cod')
+    }
+
+    // If codMethod is 'card' but card_terminal is not available, switch to 'cash'
+    if (paymentMode === 'cod' && codMethod === 'card' && !options.card_terminal) {
+      setCodMethod('cash')
+    }
+
+    // If codMethod is 'cash' but cash is not available, switch to 'card' if available, otherwise 'now'
+    if (paymentMode === 'cod' && codMethod === 'cash' && !options.cash) {
+      if (options.card_terminal) {
+        setCodMethod('card')
+      } else if (options.card_online) {
+        setPaymentMode('now')
+      }
+    }
+  }, [availablePaymentOptions, paymentMode, codMethod, paymentOptionsByService])
 
   const handleBackToHome = () => {
     router.push('/').catch(() => {})
@@ -616,7 +694,33 @@ export default function CheckoutPage() {
                   </svg>
                 </button>
               </div>
-              {withinArea === false && <div className={styles.errorText} style={{marginTop:'4px'}}>Adresse hors zone de livraison.</div>}
+              {withinArea === false && (
+                <div className={styles.errorText} style={{marginTop:'4px'}}>
+                  <div>Adresse hors zone de livraison.</div>
+                  {deliveryAlternatives && Object.keys(deliveryAlternatives).length > 0 && (
+                    <div style={{marginTop:'8px'}}>
+                      <div style={{marginBottom:'4px', fontSize:'14px'}}>Commandez sur :</div>
+                      <div style={{display:'flex', flexWrap:'wrap', gap:'8px'}}>
+                        {Object.entries(deliveryAlternatives).map(([service, url]) => (
+                          <a
+                            key={service}
+                            href={url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            style={{
+                              color:'#2563eb',
+                              textDecoration:'underline',
+                              fontSize:'14px'
+                            }}
+                          >
+                            {formatDeliveryServiceName(service)}
+                          </a>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* Delivery instructions row */}
               <div className={`${styles.rowItem} ${styles.clickableRow}`} onClick={() => setShowDeliveryModal(true)} role="button" tabIndex={0}>
@@ -680,10 +784,14 @@ export default function CheckoutPage() {
           {openSection === idxPayment && (
             <>
               <div className={styles.segRow}>
-                <button type="button" className={`${styles.segBtn} ${paymentMode==='now' ? styles.segBtnActive : ''}`} onClick={()=>{ setPaymentMode('now'); setPaymentError('') }}>Payer maintenant</button>
-                <button type="button" className={`${styles.segBtn} ${paymentMode==='cod' ? styles.segBtnActive : ''}`} onClick={()=>{ setPaymentMode('cod'); setPaymentError('') }}>
-                  {service === 'pickup' ? 'Payer sur place' : 'Payer à la livraison'}
-                </button>
+                {availablePaymentOptions.card_online && (
+                  <button type="button" className={`${styles.segBtn} ${paymentMode==='now' ? styles.segBtnActive : ''}`} onClick={()=>{ setPaymentMode('now'); setPaymentError('') }}>Payer maintenant</button>
+                )}
+                {(availablePaymentOptions.card_terminal || availablePaymentOptions.cash) && (
+                  <button type="button" className={`${styles.segBtn} ${paymentMode==='cod' ? styles.segBtnActive : ''}`} onClick={()=>{ setPaymentMode('cod'); setPaymentError('') }}>
+                    {service === 'pickup' ? 'Payer sur place' : 'Payer à la livraison'}
+                  </button>
+                )}
               </div>
 
               {paymentMode === 'now' && hasCard && (
@@ -756,14 +864,18 @@ export default function CheckoutPage() {
                     <div className={styles.rowText}>
                       <div className={styles.rowTitle}>{service === 'pickup' ? 'Paiement sur place' : 'Paiement à la livraison'}</div>
                       <div className={styles.radioGroup} style={{marginTop:6}}>
-                        <label className={styles.radioLine}>
-                          <input type="radio" name="codMethod" checked={codMethod==='cash'} onChange={()=>setCodMethod('cash')} />
-                          Espèces
-                        </label>
-                        <label className={styles.radioLine}>
-                          <input type="radio" name="codMethod" checked={codMethod==='card'} onChange={()=>setCodMethod('card')} />
-                          Carte crédit / débit
-                        </label>
+                        {availablePaymentOptions.cash && (
+                          <label className={styles.radioLine}>
+                            <input type="radio" name="codMethod" checked={codMethod==='cash'} onChange={()=>setCodMethod('cash')} />
+                            Espèces
+                          </label>
+                        )}
+                        {availablePaymentOptions.card_terminal && (
+                          <label className={styles.radioLine}>
+                            <input type="radio" name="codMethod" checked={codMethod==='card'} onChange={()=>setCodMethod('card')} />
+                            Carte crédit / débit
+                          </label>
+                        )}
                       </div>
                       {/* Removed "Monnaie pour" input per request */}
                     </div>
@@ -1397,4 +1509,73 @@ function normalizeServiceTypes(rawValue) {
 
   const unique = Array.from(new Set(normalized))
   return unique.length > 0 ? unique : fallback
+}
+
+function normalizePaymentOptionsByService(rawValue) {
+  const fallback = {
+    delivery: ['card_online', 'card_terminal', 'cash'],
+    pickup: ['card_online', 'card_terminal', 'cash'],
+  }
+  if (rawValue == null) return fallback
+
+  let parsed = rawValue
+  if (typeof rawValue === 'string') {
+    try {
+      parsed = JSON.parse(rawValue)
+    } catch {
+      return fallback
+    }
+  }
+
+  if (typeof parsed !== 'object' || parsed === null) return fallback
+
+  const result = {
+    delivery: Array.isArray(parsed.delivery) ? parsed.delivery : fallback.delivery,
+    pickup: Array.isArray(parsed.pickup) ? parsed.pickup : fallback.pickup,
+  }
+
+  return result
+}
+
+function normalizeDeliveryAlternatives(rawValue) {
+  if (rawValue == null) return null
+
+  let parsed = rawValue
+  if (typeof rawValue === 'string') {
+    try {
+      parsed = JSON.parse(rawValue)
+    } catch {
+      return null
+    }
+  }
+
+  if (typeof parsed !== 'object' || parsed === null) return null
+
+  // Filter out invalid entries (must have valid URL)
+  const result = {}
+  Object.entries(parsed).forEach(([key, value]) => {
+    if (typeof value === 'string' && value.trim().length > 0) {
+      // Basic URL validation
+      try {
+        new URL(value)
+        result[key] = value.trim()
+      } catch {
+        // Invalid URL, skip
+      }
+    }
+  })
+
+  return Object.keys(result).length > 0 ? result : null
+}
+
+function formatDeliveryServiceName(service) {
+  const names = {
+    doordash: 'DoorDash',
+    ubereats: 'Uber Eats',
+    skip: 'Skip The Dishes',
+    skipthedishes: 'Skip The Dishes',
+    deliveroo: 'Deliveroo',
+    foodora: 'Foodora',
+  }
+  return names[service.toLowerCase()] || service.charAt(0).toUpperCase() + service.slice(1).toLowerCase()
 }
