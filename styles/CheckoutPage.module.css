@@ -14,6 +14,16 @@
 .field input:focus,.field select:focus,.field textarea:focus{outline:2px solid #2563eb;border-color:#2563eb}
 .inputError{border-color:#ef4444 !important}
 .errorText{color:#b91c1c;font-size:12px;margin-top:4px}
+.deliveryZoneError{background:#fef2f2;border:1px solid #fecaca;border-radius:10px;padding:14px 16px;margin-top:12px;margin-bottom:20px;display:flex;gap:12px;align-items:flex-start}
+.deliveryZoneErrorIcon{flex-shrink:0;width:20px;height:20px;margin-top:2px;color:#dc2626}
+.deliveryZoneErrorContent{flex:1;display:flex;flex-direction:column;gap:10px}
+.deliveryZoneErrorTitle{color:#991b1b;font-weight:600;font-size:14px;margin:0;line-height:1.4}
+.deliveryZoneErrorText{color:#7f1d1d;font-size:13px;margin:0;line-height:1.5}
+.deliveryZoneAlternatives{margin-top:8px;padding-top:10px;border-top:1px solid #fecaca}
+.deliveryZoneAlternativesLabel{color:#991b1b;font-size:13px;font-weight:500;margin-bottom:8px}
+.deliveryZoneAlternativesLinks{display:flex;flex-wrap:wrap;gap:10px}
+.deliveryZoneAlternativeLink{display:inline-flex;align-items:center;gap:6px;color:#2563eb;text-decoration:none;font-size:13px;font-weight:500;padding:6px 12px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;transition:all 0.15s ease}
+.deliveryZoneAlternativeLink:hover{background:#dbeafe;border-color:#93c5fd;color:#1d4ed8;text-decoration:none}
 .tipBlock{margin-top:4px}
 .tipBlockSummary{margin-top:16px;padding-top:12px;border-top:1px dashed #e5e7eb}
 .tipHeader{font-weight:700;margin-bottom:6px}
