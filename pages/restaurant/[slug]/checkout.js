@@ -8,6 +8,7 @@ import { useRouter } from 'next/router'
 import ItemModal from '../../../components/ItemModal'
 import { extractPolygonsFromGeoJson, pointInPolygons } from '../../../lib/geo'
 import { formatPrice } from '../../../lib/currency'
+import { calculateDeliveryFee } from '../../../lib/deliveryFee'
 
 const CheckoutMap = dynamic(() => import('../../../components/CheckoutMap'), { ssr: false })
 
@@ -158,7 +159,35 @@ export default function CheckoutPage() {
   const addrAbort = useRef(null)
   const debounceRef = useRef(null)
 
-  const deliveryFee = 3.99
+  // Calculate delivery fee based on rules
+  const deliveryFeeData = useMemo(() => {
+    if (service === 'pickup') return { fee: 0, breakdown: [] }
+    
+    const rules = restaurantSettings?.delivery_fee_rules
+    if (!rules) {
+      // Fallback to default fee if no rules
+      return { fee: 3.99, breakdown: [{ label: 'Frais de livraison', amount: 3.99 }] }
+    }
+
+    const restaurantLocation = restaurantSettings?.lat != null && restaurantSettings?.lng != null
+      ? { lat: Number(restaurantSettings.lat), lng: Number(restaurantSettings.lng) }
+      : null
+
+    const deliveryLocation = addressLat != null && addressLng != null
+      ? { lat: addressLat, lng: addressLng }
+      : null
+
+    return calculateDeliveryFee(rules, {
+      subtotal,
+      restaurantLocation,
+      deliveryLocation,
+      currentTime: new Date(),
+    })
+  }, [service, restaurantSettings, addressLat, addressLng, subtotal])
+
+  const deliveryFee = deliveryFeeData.fee
+  const deliveryFeeBreakdown = deliveryFeeData.breakdown
+
   const tip = useMemo(() => {
     if (service === 'pickup') return 0
     if (tipCustom !== '' && !Number.isNaN(Number(tipCustom))) return Math.max(0, Number(tipCustom))
@@ -168,7 +197,7 @@ export default function CheckoutPage() {
   const taxes = useMemo(() => {
     const rate = 0.14975
     return Math.round(((subtotal + deliveryFee) * rate) * 100) / 100
-  }, [subtotal])
+  }, [subtotal, deliveryFee])
 
   const total = useMemo(() => Math.round((subtotal + deliveryFee + taxes + tip) * 100) / 100, [subtotal, deliveryFee, taxes, tip])
 
@@ -1015,6 +1044,16 @@ export default function CheckoutPage() {
             <div className={styles.summary}>
               <div className={styles.sumRow}><span>Sous-total</span><span>{formatPrice(subtotal)}</span></div>
               <div className={styles.sumRow}><span>Frais de livraison</span><span>{formatPrice(deliveryFee)}</span></div>
+              {service !== 'pickup' && deliveryFeeBreakdown.length > 0 && (
+                <div className={styles.deliveryFeeBreakdown}>
+                  {deliveryFeeBreakdown.map((item, idx) => (
+                    <div key={idx} className={styles.sumRowSub}>
+                      <span>{item.label}</span>
+                      <span>{formatPrice(item.amount)}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
               <div className={styles.sumRow}><span>Taxes</span><span>{formatPrice(taxes)}</span></div>
               {service !== 'pickup' && (
                 <div className={styles.sumRow}><span>Pourboire</span><span>{formatPrice(tip)}</span></div>

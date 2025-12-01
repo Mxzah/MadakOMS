@@ -7,9 +7,9 @@
 .h1{margin:0 0 6px 0;font-size:22px}
 .subtitle{margin:0 0 16px 0;color:#6b7280}
 .form{display:flex;flex-direction:column;gap:14px}
-.row2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:14px;align-items:start}
 .field{display:flex;flex-direction:column;gap:6px;position:relative}
-.field label{font-weight:600}
+.field label{font-weight:600;min-height:1.5em;display:flex;align-items:center}
 .field input,.field select,.field textarea{border:1px solid #e5e7eb;border-radius:8px;padding:10px 12px;font-size:14px;box-sizing:border-box;width:100%;display:block;background:#fff}
 .field input:focus,.field select:focus,.field textarea:focus{outline:2px solid #2563eb;border-color:#2563eb}
 .inputError{border-color:#ef4444 !important}
@@ -39,11 +39,14 @@
 .acItemMuted{padding:10px 12px;color:#6b7280}
 .summary{margin-top:8px;border-top:1px dashed #e5e7eb;padding-top:10px}
 .sumRow{display:flex;justify-content:space-between;margin:4px 0;color:#374151}
+.sumRowSub{display:flex;justify-content:space-between;margin:2px 0 2px 16px;color:#6b7280;font-size:13px}
+.deliveryFeeBreakdown{margin-bottom:4px}
 .sumRowTotal{display:flex;justify-content:space-between;margin-top:8px;padding-top:8px;border-top:1px solid #e5e7eb;font-size:18px}
 .actions{display:flex;gap:10px;margin-top:12px}
 .secondary{background:#f3f4f6;border:1px solid #e5e7eb;padding:10px 14px;border-radius:10px;font-weight:600}
 .primary{background:var(--accent);color:#fff;border:none;padding:10px 14px;border-radius:10px;font-weight:700}
 @media (max-width:1000px){.wrapper{grid-template-columns:1fr;padding:16px}.right{height:380px;position:static}}
+@media (max-width:640px){.row2{grid-template-columns:1fr;align-items:stretch}.row2 .field{display:flex;flex-direction:column;align-items:stretch}}
 
 /* Checkout cart list */
 .cartList{margin-top:12px;border-top:1px dashed #e5e7eb;padding-top:12px}
