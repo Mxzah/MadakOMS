@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useState, useMemo } from 'react'
 import styles from '../styles/CartDrawer.module.css'
 import { useCart } from '../context/CartContext'
 import { useService } from '../context/ServiceContext'
@@ -17,12 +17,15 @@ export default function CartDrawer() {
     showGlobalLoading,
     hideGlobalLoading,
     checkoutBlock,
+    setCheckoutBlock,
+    restaurantSlug,
   } = useCart()
   const router = useRouter()
   const { service } = useService()
   const slug = typeof router?.query?.slug === 'string' ? router.query.slug : null
   const [storedSlug, setStoredSlug] = useState(null)
   const [editIndex, setEditIndex] = useState(null)
+  const [restaurantSettings, setRestaurantSettings] = useState(null)
 
   const GROUP_LABELS = {
     size: 'Taille',
@@ -54,6 +57,66 @@ export default function CartDrawer() {
       if (saved) setStoredSlug(saved)
     } catch {}
   }, [slug])
+
+  // Load restaurant settings to check minimum order amount
+  useEffect(() => {
+    const activeSlug = slug || storedSlug || restaurantSlug
+    if (!activeSlug) {
+      setRestaurantSettings(null)
+      return
+    }
+
+    let cancelled = false
+    async function loadSettings() {
+      try {
+        const res = await fetch(`/api/restaurant/${activeSlug}/menu`)
+        if (res.status === 404 || !res.ok) {
+          if (!cancelled) setRestaurantSettings(null)
+          return
+        }
+        const payload = await res.json()
+        if (cancelled) return
+        setRestaurantSettings(payload?.settings || null)
+      } catch (error) {
+        console.error('Failed to load restaurant settings in cart', error)
+        if (!cancelled) setRestaurantSettings(null)
+      }
+    }
+
+    loadSettings()
+    return () => { cancelled = true }
+  }, [slug, storedSlug, restaurantSlug])
+
+  // Validate minimum order amount and set checkout block
+  useEffect(() => {
+    if (!setCheckoutBlock) return
+
+    // If cart is empty or no settings, don't block
+    if (lines.length === 0 || !restaurantSettings) {
+      // Only clear the min order block, not other blocks (like restaurant closed)
+      if (checkoutBlock?.reason === 'min_order_amount') {
+        setCheckoutBlock(null)
+      }
+      return
+    }
+
+    const minOrderAmount = service === 'delivery' 
+      ? (restaurantSettings?.min_order_amount_delivery ?? null)
+      : (restaurantSettings?.min_order_amount_pickup ?? null)
+    
+    if (minOrderAmount != null && Number.isFinite(Number(minOrderAmount)) && subtotal < Number(minOrderAmount)) {
+      const serviceLabel = service === 'delivery' ? 'livraison' : 'cueillette'
+      setCheckoutBlock({
+        reason: 'min_order_amount',
+        message: `Le montant minimum pour la ${serviceLabel} est de ${formatPrice(Number(minOrderAmount))}. Votre commande est de ${formatPrice(subtotal)}.`,
+      })
+    } else {
+      // Only clear the min order block, not other blocks
+      if (checkoutBlock?.reason === 'min_order_amount') {
+        setCheckoutBlock(null)
+      }
+    }
+  }, [subtotal, service, restaurantSettings, lines.length, setCheckoutBlock, checkoutBlock])
 
   if (!isOpen) return null
 

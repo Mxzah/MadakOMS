@@ -9,6 +9,10 @@ export default function RestaurantInfo({
   defaultService = 'pickup',
   availableServices = ['delivery', 'pickup'],
   onServiceChange,
+  estimatedDeliveryTimeMinutes,
+  estimatedPrepTimeMinutes,
+  phone,
+  email,
 }) {
   const [open, setOpen] = useState(false)
   const { service, setService } = useService()
@@ -46,6 +50,18 @@ export default function RestaurantInfo({
     return (first + second).toUpperCase()
   }, [name])
 
+  const estimatedTime = useMemo(() => {
+    const prepTime = estimatedPrepTimeMinutes
+    const deliveryTime = estimatedDeliveryTimeMinutes
+    
+    if (service === 'delivery' && prepTime != null && deliveryTime != null) {
+      return prepTime + deliveryTime
+    } else if (service === 'pickup' && prepTime != null) {
+      return prepTime
+    }
+    return null
+  }, [service, estimatedPrepTimeMinutes, estimatedDeliveryTimeMinutes])
+
   // If a page passes defaultService (like sante-taouk), set it on mount
   useEffect(() => {
     if (normalizedServices.length === 0) return
@@ -71,6 +87,23 @@ export default function RestaurantInfo({
             </svg>
             <span>{address}</span>
           </div>
+          {phone && (
+            <div className={styles.contactInfo}>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07 19.5 19.5 0 01-6-6 19.79 19.79 0 01-3.07-8.67A2 2 0 014.11 2h3a2 2 0 012 1.72c.127.96.361 1.903.7 2.81a2 2 0 01-.45 2.11L8.09 9.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0122 16.92z" stroke="#666" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+              <a href={`tel:${phone}`}>{phone}</a>
+            </div>
+          )}
+          {email && (
+            <div className={styles.contactInfo}>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" stroke="#666" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                <polyline points="22,6 12,13 2,6" stroke="#666" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+              <a href={`mailto:${email}`}>{email}</a>
+            </div>
+          )}
         </div>
 
         <div className={styles.actions}>
@@ -87,34 +120,41 @@ export default function RestaurantInfo({
           </button>
 
           {(showDelivery || showPickup) && (
-            <div className={styles.serviceSwitch} role="tablist" aria-label="Type de service">
-              {showDelivery && (
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={service === 'delivery'}
-                  className={`${styles.pill} ${service === 'delivery' ? styles.active : ''}`}
-                  onClick={() => {
-                    setService('delivery')
-                    onServiceChange && onServiceChange('delivery')
-                  }}
-                >
-                  Livraison
-                </button>
-              )}
-              {showPickup && (
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={service === 'pickup'}
-                  className={`${styles.pill} ${service === 'pickup' ? styles.active : ''}`}
-                  onClick={() => {
-                    setService('pickup')
-                    onServiceChange && onServiceChange('pickup')
-                  }}
-                >
-                  Sur place
-                </button>
+            <div>
+              <div className={styles.serviceSwitch} role="tablist" aria-label="Type de service">
+                {showDelivery && (
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={service === 'delivery'}
+                    className={`${styles.pill} ${service === 'delivery' ? styles.active : ''}`}
+                    onClick={() => {
+                      setService('delivery')
+                      onServiceChange && onServiceChange('delivery')
+                    }}
+                  >
+                    Livraison
+                  </button>
+                )}
+                {showPickup && (
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={service === 'pickup'}
+                    className={`${styles.pill} ${service === 'pickup' ? styles.active : ''}`}
+                    onClick={() => {
+                      setService('pickup')
+                      onServiceChange && onServiceChange('pickup')
+                    }}
+                  >
+                    Cueillette
+                  </button>
+                )}
+              </div>
+              {estimatedTime != null && (
+                <div className={styles.timeEstimate}>
+                  Temps estimé: {estimatedTime} min
+                </div>
               )}
             </div>
           )}

@@ -38,6 +38,7 @@ export default function CheckoutPage() {
   const [settingsLoading, setSettingsLoading] = useState(false)
   const [settingsError, setSettingsError] = useState('')
   const [settingsIssues, setSettingsIssues] = useState([])
+  const [restaurantSettings, setRestaurantSettings] = useState(null)
   const [deliveryPolygons, setDeliveryPolygons] = useState([])
   const [operatingWindows, setOperatingWindows] = useState({})
   const [allowedServices, setAllowedServices] = useState(['delivery', 'pickup'])
@@ -185,6 +186,18 @@ export default function CheckoutPage() {
     if (service !== 'pickup' && deliveryMode === 'scheduled' && !scheduleSlot) {
       setShowScheduleModal(true)
       setOpenSection(2)
+      return
+    }
+    
+    // Validate minimum order amount
+    const minOrderAmount = service === 'delivery' 
+      ? (restaurantSettings?.min_order_amount_delivery ?? null)
+      : (restaurantSettings?.min_order_amount_pickup ?? null)
+    
+    if (minOrderAmount != null && Number.isFinite(Number(minOrderAmount)) && subtotal < Number(minOrderAmount)) {
+      const serviceLabel = service === 'delivery' ? 'livraison' : 'cueillette'
+      setOrderError(`Le montant minimum pour la ${serviceLabel} est de ${formatPrice(Number(minOrderAmount))}. Votre commande est de ${formatPrice(subtotal)}.`)
+      setOpenSection(service === 'pickup' ? 1 : 2)
       return
     }
     // Validate payment options
@@ -379,19 +392,21 @@ export default function CheckoutPage() {
               delivery: ['card_online', 'card_terminal', 'cash'],
               pickup: ['card_online', 'card_terminal', 'cash'],
             })
-            setDeliveryAlternatives(null)
-            setSettingsIssues([])
-          }
-          return
-        }
-        if (!res.ok) throw new Error('HTTP non OK')
-        const payload = await res.json()
-        if (cancelled) return
+        setDeliveryAlternatives(null)
+        setSettingsIssues([])
+        setRestaurantSettings(null)
+      }
+      return
+    }
+    if (!res.ok) throw new Error('HTTP non OK')
+    const payload = await res.json()
+    if (cancelled) return
         const polygons = extractPolygonsFromGeoJson(payload?.settings?.delivery_zones_geojson)
         const windows = normalizeOperatingWindows(payload?.settings?.hours_json)
         const services = normalizeServiceTypes(payload?.settings?.service_types)
         const paymentOptions = normalizePaymentOptionsByService(payload?.settings?.payment_options_by_service)
         const alternatives = normalizeDeliveryAlternatives(payload?.settings?.delivery_alternatives)
+        setRestaurantSettings(payload?.settings || null)
         setDeliveryPolygons(polygons)
         setOperatingWindows(windows)
         setAllowedServices(services)
@@ -418,6 +433,7 @@ export default function CheckoutPage() {
         })
         setDeliveryAlternatives(null)
         setSettingsIssues([])
+        setRestaurantSettings(null)
       } finally {
         if (!cancelled) setSettingsLoading(false)
       }

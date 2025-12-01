@@ -39,10 +39,27 @@ export default function RestaurantPage() {
   const resolvedRestaurantName = menuData?.restaurant?.name ?? restaurantName
   const resolvedSchedule = useMemo(() => normalizeWeeklyHours(menuData?.settings?.hours_json), [menuData?.settings?.hours_json])
   const resolvedAddress = buildAddressFromSettings(menuData?.settings) || 'Adresse non disponible'
-  const availableServices = useMemo(
-    () => normalizeServiceTypes(menuData?.settings?.service_types),
-    [menuData?.settings?.service_types]
-  )
+  const availableServices = useMemo(() => {
+    const services = normalizeServiceTypes(menuData?.settings?.service_types)
+    const filtered = []
+    
+    // Filter based on enabled flags
+    if (services.includes('delivery')) {
+      // If delivery_enabled is explicitly false, exclude it; otherwise include it
+      if (menuData?.settings?.delivery_enabled !== false) {
+        filtered.push('delivery')
+      }
+    }
+    
+    if (services.includes('pickup')) {
+      // If pickup_enabled is explicitly false, exclude it; otherwise include it
+      if (menuData?.settings?.pickup_enabled !== false) {
+        filtered.push('pickup')
+      }
+    }
+    
+    return filtered.length > 0 ? filtered : services
+  }, [menuData?.settings?.service_types, menuData?.settings?.delivery_enabled, menuData?.settings?.pickup_enabled])
   const defaultService = useMemo(() => {
     if (availableServices.includes('delivery')) return 'delivery'
     return availableServices[0] || 'delivery'
@@ -253,6 +270,10 @@ export default function RestaurantPage() {
             schedule={resolvedSchedule || {}}
             availableServices={availableServices}
             defaultService={defaultService}
+            estimatedDeliveryTimeMinutes={menuData?.settings?.estimated_delivery_time_minutes}
+            estimatedPrepTimeMinutes={menuData?.settings?.estimated_prep_time_minutes}
+            phone={menuData?.restaurant?.phone}
+            email={menuData?.restaurant?.email}
           />
 
           {loadError && (
