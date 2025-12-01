@@ -5,6 +5,7 @@ import { useService } from '../context/ServiceContext'
 import ItemModal from './ItemModal'
 import { useRouter } from 'next/router'
 import { formatPrice } from '../lib/currency'
+import { isRestaurantOpenNow } from '../lib/hours'
 
 export default function CartDrawer() {
   const {
@@ -87,19 +88,34 @@ export default function CartDrawer() {
     return () => { cancelled = true }
   }, [slug, storedSlug, restaurantSlug])
 
-  // Validate minimum order amount and set checkout block
+  // Check if restaurant is closed and validate minimum order amount
   useEffect(() => {
     if (!setCheckoutBlock) return
 
     // If cart is empty or no settings, don't block
     if (lines.length === 0 || !restaurantSettings) {
-      // Only clear the min order block, not other blocks (like restaurant closed)
-      if (checkoutBlock?.reason === 'min_order_amount') {
+      // Only clear specific blocks, not others
+      if (checkoutBlock?.reason === 'min_order_amount' || checkoutBlock?.reason === 'restaurant_closed') {
         setCheckoutBlock(null)
       }
       return
     }
 
+    // Check if restaurant is closed
+    const orderingDisabled = restaurantSettings?.ordering_enabled === false
+    const hasHoursConfigured = Boolean(restaurantSettings?.hours_json)
+    const closedBySchedule = hasHoursConfigured ? !isRestaurantOpenNow(restaurantSettings.hours_json, new Date()) : false
+    const isClosed = orderingDisabled || closedBySchedule
+
+    if (isClosed) {
+      setCheckoutBlock({
+        reason: 'restaurant_closed',
+        message: 'Ce restaurant est actuellement fermé. Revenez plus tard pour passer votre commande.',
+      })
+      return
+    }
+
+    // Check minimum order amount only if restaurant is open
     const minOrderAmount = service === 'delivery' 
       ? (restaurantSettings?.min_order_amount_delivery ?? null)
       : (restaurantSettings?.min_order_amount_pickup ?? null)

@@ -5,8 +5,8 @@
   "devFiles": [],
   "ampDevFiles": [],
   "lowPriorityFiles": [
-    "static/Q17YW13aocb8xL6QPQF82/_buildManifest.js",
-    "static/Q17YW13aocb8xL6QPQF82/_ssgManifest.js"
+    "static/5uu-7r-rd7jaeKLDnySLt/_buildManifest.js",
+    "static/5uu-7r-rd7jaeKLDnySLt/_ssgManifest.js"
   ],
   "rootMainFiles": [],
   "pages": {
@@ -15,7 +15,7 @@
       "static/chunks/framework-7a7e500878b44665.js",
       "static/chunks/main-91b0136e68d72f0b.js",
       "static/css/ece8d13dd4501bcb.css",
-      "static/chunks/pages/_app-d94662381a5b0c49.js"
+      "static/chunks/pages/_app-0dc36bde8b965375.js"
     ],
     "/_error": [
       "static/chunks/webpack-46322785ff45bd20.js",
@@ -57,7 +57,7 @@
       "static/chunks/framework-7a7e500878b44665.js",
       "static/chunks/main-91b0136e68d72f0b.js",
       "static/css/6089d11ca253a062.css",
-      "static/chunks/pages/restaurant/[slug]-c86b2f1dc19ff282.js"
+      "static/chunks/pages/restaurant/[slug]-fa9eea1ecd6551c8.js"
     ],
     "/restaurant/[slug]/checkout": [
       "static/chunks/webpack-46322785ff45bd20.js",

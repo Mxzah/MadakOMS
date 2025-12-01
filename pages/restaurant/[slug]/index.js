@@ -453,12 +453,22 @@ function parseJsonField(value) {
 
 function formatHoursValue(raw) {
   if (!raw) return 'Fermé'
+  
+  // Check if enabled is explicitly false
+  if (typeof raw === 'object' && !Array.isArray(raw) && raw.enabled === false) {
+    return 'Fermé'
+  }
+  
   if (typeof raw === 'string') return raw
   const segments = Array.isArray(raw) ? raw : [raw]
   const labels = segments
     .map((segment) => {
       if (!segment) return null
       if (typeof segment === 'string') return segment
+      
+      // Check if enabled is explicitly false for this segment
+      if (segment.enabled === false) return null
+      
       if (segment.label) return segment.label
       if (segment.open && segment.close) return `${formatClock(segment.open)}–${formatClock(segment.close)}`
       return null
