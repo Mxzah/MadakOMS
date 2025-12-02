@@ -381,8 +381,8 @@ export default function OrderTrackPage() {
                 <div className={styles.cardTitle}>Détails</div>
                 <div className={styles.row}><span>Service</span><strong>{serviceLabel}</strong></div>
                 <div className={styles.row}><span>Paiement</span><strong>{paymentLabel}</strong></div>
-                <div className={styles.row}><span>Client</span><strong>{order.pickup_name || order.delivery_address?.address || '—'}</strong></div>
-                <div className={styles.row}><span>Téléphone</span><strong>{order.pickup_phone || '—'}</strong></div>
+                <div className={styles.row}><span>Client</span><strong>{order.pickup_name || order.delivery_name || order.delivery_address?.address || '—'}</strong></div>
+                <div className={styles.row}><span>Téléphone</span><strong>{order.pickup_phone || order.customer?.phone || '—'}</strong></div>
                 <div className={styles.row}><span>Total</span><strong>{formatPrice(order.total)}</strong></div>
               </div>
 
