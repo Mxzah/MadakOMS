@@ -159,7 +159,90 @@ export default function CheckoutPage() {
   const addrAbort = useRef(null)
   const debounceRef = useRef(null)
 
+  // Restaurant location for map marker - geocode from address if lat/lng not available
+  const [restaurantLocation, setRestaurantLocation] = useState(null)
+  
+  useEffect(() => {
+    // First, try to use lat/lng if available
+    if (restaurantSettings?.lat != null && restaurantSettings?.lng != null) {
+      setRestaurantLocation({ lat: Number(restaurantSettings.lat), lng: Number(restaurantSettings.lng) })
+      return
+    }
+
+    // Otherwise, geocode from address
+    if (!restaurantSettings) {
+      setRestaurantLocation(null)
+      return
+    }
+
+    const buildAddressString = () => {
+      const parts = [
+        restaurantSettings.address_line1,
+        restaurantSettings.address_line2,
+        [restaurantSettings.city, restaurantSettings.province].filter(Boolean).join(', '),
+        restaurantSettings.postal_code,
+        restaurantSettings.country || 'Canada',
+      ].filter((part) => part && part.trim().length > 0)
+      return parts.join(', ')
+    }
+
+    const addressString = buildAddressString()
+    if (!addressString || addressString.trim().length < 3) {
+      setRestaurantLocation(null)
+      return
+    }
+
+    // Geocode using Photon API (same as address autocomplete)
+    let cancelled = false
+    async function geocodeAddress() {
+      try {
+        const url = `https://photon.komoot.io/api/?q=${encodeURIComponent(addressString)}&lang=fr&limit=1`
+        const res = await fetch(url)
+        const json = await res.json()
+        
+        if (cancelled) return
+        
+        if (json.features && json.features.length > 0) {
+          const feature = json.features[0]
+          const [lng, lat] = feature.geometry.coordinates
+          if (Number.isFinite(lat) && Number.isFinite(lng)) {
+            setRestaurantLocation({ lat: Number(lat), lng: Number(lng) })
+          } else {
+            setRestaurantLocation(null)
+          }
+        } else {
+          setRestaurantLocation(null)
+        }
+      } catch (error) {
+        console.error('Failed to geocode restaurant address:', error)
+        if (!cancelled) {
+          setRestaurantLocation(null)
+        }
+      }
+    }
+
+    geocodeAddress()
+    return () => { cancelled = true }
+  }, [
+    restaurantSettings?.lat,
+    restaurantSettings?.lng,
+    restaurantSettings?.address_line1,
+    restaurantSettings?.address_line2,
+    restaurantSettings?.city,
+    restaurantSettings?.province,
+    restaurantSettings?.postal_code,
+    restaurantSettings?.country,
+  ])
+
   // Calculate delivery fee based on rules
+  // Delivery location for map marker
+  const deliveryLocation = useMemo(() => {
+    if (addressLat != null && addressLng != null) {
+      return { lat: addressLat, lng: addressLng }
+    }
+    return null
+  }, [addressLat, addressLng])
+
   const deliveryFeeData = useMemo(() => {
     if (service === 'pickup') return { fee: 0, breakdown: [] }
     
@@ -169,21 +252,13 @@ export default function CheckoutPage() {
       return { fee: 3.99, breakdown: [{ label: 'Frais de livraison', amount: 3.99 }] }
     }
 
-    const restaurantLocation = restaurantSettings?.lat != null && restaurantSettings?.lng != null
-      ? { lat: Number(restaurantSettings.lat), lng: Number(restaurantSettings.lng) }
-      : null
-
-    const deliveryLocation = addressLat != null && addressLng != null
-      ? { lat: addressLat, lng: addressLng }
-      : null
-
     return calculateDeliveryFee(rules, {
       subtotal,
       restaurantLocation,
       deliveryLocation,
       currentTime: new Date(),
     })
-  }, [service, restaurantSettings, addressLat, addressLng, subtotal])
+  }, [service, restaurantSettings, restaurantLocation, deliveryLocation, subtotal])
 
   const deliveryFee = deliveryFeeData.fee
   const deliveryFeeBreakdown = deliveryFeeData.breakdown
@@ -370,6 +445,7 @@ export default function CheckoutPage() {
   const [hasCard, setHasCard] = useState(false)
   const [last4, setLast4] = useState('')
   const [cardBrand, setCardBrand] = useState(null) // 'visa' | 'mastercard' | null
+  const [cardExp, setCardExp] = useState('')
   const [cardErrors, setCardErrors] = useState({ number: '', cvc: '', exp: '', zip: '' })
   const [paymentMode, setPaymentMode] = useState('now') // 'now' | 'cod'
   const [codMethod, setCodMethod] = useState('cash') // 'cash' | 'card'
@@ -896,7 +972,11 @@ export default function CheckoutPage() {
               {paymentMode === 'now' && (
                 <div className={styles.paymentNewRow}>
                   <div className={styles.paymentNewLabel}>Ajouter un mode de paiement</div>
-                  <button type="button" className={styles.paymentMethodBtn} onClick={() => setShowCardModal(true)}>
+                  <button type="button" className={styles.paymentMethodBtn} onClick={() => {
+                    setCardExp('')
+                    setCardErrors({ number: '', cvc: '', exp: '', zip: '' })
+                    setShowCardModal(true)
+                  }}>
                     <span className={styles.paymentMethodIcon} aria-hidden="true">
                       <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" className={styles.cardIcon}>
                         <path fillRule="evenodd" clipRule="evenodd" d="M20 4C21.6569 4 23 5.34315 23 7V17C23 18.6569 21.6569 20 20 20H4C2.34315 20 1 18.6569 1 17V7C1 5.34315 2.34315 4 4 4H20ZM20 6C20.5523 6 21 6.44772 21 7V9H3V7C3 6.44771 3.44772 6 4 6H20ZM3 11V17C3 17.5523 3.44772 18 4 18H20C20.5523 18 21 17.5523 21 17V11H3Z" fill="#0F0F0F"/>
@@ -1080,21 +1160,36 @@ export default function CheckoutPage() {
         )}
         </div>
         <aside className={styles.right}>
-          <CheckoutMap polygons={deliveryPolygons} />
+          <CheckoutMap polygons={deliveryPolygons} restaurantLocation={restaurantLocation} deliveryLocation={deliveryLocation} />
         </aside>
       </main>
       {showAddressModal && (
-        <div className={styles.deliveryBackdrop} onClick={handleCloseAddressModal}>
+        <div 
+          className={styles.deliveryBackdrop} 
+          onClick={(e) => {
+            // Ne fermer que sur mobile (largeur <= 768px), pas sur ordinateur
+            if (typeof window !== 'undefined' && window.innerWidth <= 768) {
+              handleCloseAddressModal()
+            }
+          }}
+        >
           <div className={styles.deliveryModal} role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
             <button type="button" className={styles.modalClose} aria-label="Fermer" onClick={handleCloseAddressModal}>×</button>
             <div className={styles.deliveryHeader}>Modifier l'adresse</div>
             <form className={styles.deliveryForm} onSubmit={(e) => {
               e.preventDefault()
+              
+              // Empêcher la soumission pendant le chargement
+              if (addrLoading) {
+                return
+              }
+              
               const chosenLabel = addressDraft
               const lat = addressLat
               const lng = addressLng
               const hasSuggestions = Array.isArray(addrResults) && addrResults.length > 0
 
+              // Si des suggestions sont disponibles, l'utilisateur DOIT en sélectionner une
               if (hasSuggestions && (lat == null || lng == null)) {
                 setAddrSelectionError('Veuillez sélectionner une adresse parmi les suggestions.')
                 setAddrOpen(true)
@@ -1119,6 +1214,24 @@ export default function CheckoutPage() {
                   value={addressDraft}
                   onFocus={() => setAddrOpen(true)}
                   onBlur={() => setTimeout(() => setAddrOpen(false), 150)}
+                  onKeyDown={(e) => {
+                    // Intercepter Enter pour vérifier qu'une suggestion a été sélectionnée
+                    if (e.key === 'Enter') {
+                      // Empêcher Enter pendant le chargement
+                      if (addrLoading) {
+                        e.preventDefault()
+                        return
+                      }
+                      
+                      const hasSuggestions = Array.isArray(addrResults) && addrResults.length > 0
+                      if (hasSuggestions && (addressLat == null || addressLng == null)) {
+                        e.preventDefault()
+                        setAddrSelectionError('Veuillez sélectionner une adresse parmi les suggestions.')
+                        setAddrOpen(true)
+                        return
+                      }
+                    }
+                  }}
                   onChange={(e) => {
                     setAddressDraft(e.target.value)
                     setAddrOpen(true)
@@ -1157,14 +1270,20 @@ export default function CheckoutPage() {
               </div>
               <div className={styles.deliveryActions}>
                 <button type="button" className={styles.cancelBtn} onClick={handleCloseAddressModal}>Annuler</button>
-                <button type="submit" className={styles.saveBtn}>Enregistrer</button>
+                <button type="submit" className={styles.saveBtn} disabled={addrLoading}>
+                  {addrLoading ? 'Chargement...' : 'Enregistrer'}
+                </button>
               </div>
             </form>
           </div>
         </div>
       )}
       {showCardModal && (
-        <div className={styles.deliveryBackdrop} onClick={() => setShowCardModal(false)}>
+        <div className={styles.deliveryBackdrop} onClick={() => {
+          setCardExp('')
+          setCardErrors({ number: '', cvc: '', exp: '', zip: '' })
+          setShowCardModal(false)
+        }}>
           <div className={styles.deliveryModal} role="dialog" aria-modal="true" onClick={(e)=>e.stopPropagation()}>
             <div className={styles.deliveryHeader}>Ajouter une carte</div>
             <form
@@ -1178,7 +1297,7 @@ export default function CheckoutPage() {
 
                 const number = (numberInput.value || '').replace(/\s+/g,'')
                 const cvc = (cvcInput.value || '').trim()
-                const exp = (expInput.value || '').trim()
+                const exp = cardExp.trim()
                 const zip = (zipInput.value || '').trim()
 
                 const newErrors = { number: '', cvc: '', exp: '', zip: '' }
@@ -1206,6 +1325,7 @@ export default function CheckoutPage() {
                 setLast4(number.slice(-4))
                 setHasCard(true)
                 setCardErrors({ number: '', cvc: '', exp: '', zip: '' })
+                setCardExp('')
                 setPaymentError('')
                 setShowCardModal(false)
               }}
@@ -1247,6 +1367,23 @@ export default function CheckoutPage() {
                     placeholder="MM / AA"
                     inputMode="numeric"
                     autoComplete="cc-exp"
+                    value={cardExp}
+                    onChange={(e) => {
+                      let value = e.target.value.replace(/\D/g, '') // Remove non-digits
+                      // Limit to 4 digits
+                      if (value.length > 4) {
+                        value = value.slice(0, 4)
+                      }
+                      // Format with "/" after 2 digits
+                      if (value.length >= 2) {
+                        value = value.slice(0, 2) + ' / ' + value.slice(2)
+                      }
+                      setCardExp(value)
+                      // Clear error when user types
+                      if (cardErrors.exp) {
+                        setCardErrors(prev => ({ ...prev, exp: '' }))
+                      }
+                    }}
                   />
                   {cardErrors.exp && (
                     <div className={styles.fieldError}>{cardErrors.exp}</div>
@@ -1266,7 +1403,11 @@ export default function CheckoutPage() {
                 </div>
               </div>
               <div className={styles.deliveryActions}>
-                <button type="button" className={styles.cancelBtn} onClick={()=>setShowCardModal(false)}>Retour</button>
+                <button type="button" className={styles.cancelBtn} onClick={() => {
+                  setCardExp('')
+                  setCardErrors({ number: '', cvc: '', exp: '', zip: '' })
+                  setShowCardModal(false)
+                }}>Retour</button>
                 <button type="submit" className={styles.saveBtn}>Ajouter la carte</button>
               </div>
             </form>
