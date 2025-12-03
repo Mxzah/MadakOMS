@@ -84,7 +84,7 @@ function formatStripeError(errorMessage) {
   if (message.includes('invalid_cvc') || message.includes('invalid_cvv')) {
     return 'Le code de sécurité (CVC) est invalide. Veuillez vérifier et réessayer.'
   }
-  if (message.includes('invalid_number')) {
+  if (message.includes('invalid_number') || message.includes('card number is invalid') || message.includes('your card number is invalid')) {
     return 'Le numéro de carte est invalide. Veuillez vérifier et réessayer.'
   }
   if (message.includes('invalid_expiry_month') || message.includes('invalid_expiry_year')) {
@@ -680,6 +680,7 @@ export default function CheckoutPage() {
           body: JSON.stringify({
             amount: total,
             currency: 'cad',
+            restaurantSlug: activeSlug, // Passer le slug directement pour récupérer le compte Stripe Connect
             metadata: {
               restaurantSlug: activeSlug,
             },

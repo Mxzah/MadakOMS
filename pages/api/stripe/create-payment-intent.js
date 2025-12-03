@@ -1,4 +1,5 @@
 import Stripe from 'stripe'
+import { getRestaurantStripeAccountIdBySlug } from '../../../lib/stripe/connect'
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || '', {
   apiVersion: '2024-11-20.acacia',
@@ -15,7 +16,7 @@ export default async function handler(req, res) {
   }
 
   try {
-    const { amount, currency = 'cad', metadata = {} } = req.body
+    const { amount, currency = 'cad', metadata = {}, restaurantSlug } = req.body
 
     if (!amount || typeof amount !== 'number' || amount <= 0) {
       return res.status(400).json({ error: 'Montant invalide' })
@@ -24,13 +25,37 @@ export default async function handler(req, res) {
     // Convertir le montant en centimes (Stripe utilise les plus petites unités de la devise)
     const amountInCents = Math.round(amount * 100)
 
-    const paymentIntent = await stripe.paymentIntents.create({
+    // Récupérer le compte Stripe Connect du restaurant si disponible
+    let stripeAccountId = null
+    if (restaurantSlug && typeof restaurantSlug === 'string') {
+      stripeAccountId = await getRestaurantStripeAccountIdBySlug(restaurantSlug)
+      if (stripeAccountId) {
+        console.log(`Utilisation du compte Stripe Connect pour le restaurant: ${stripeAccountId}`)
+      }
+    }
+
+    // Options pour créer le PaymentIntent
+    const paymentIntentOptions = {
       amount: amountInCents,
       currency: currency.toLowerCase(),
-      metadata,
+      metadata: {
+        ...metadata,
+        // Ajouter le restaurantSlug dans les metadata si disponible
+        restaurantSlug: restaurantSlug || metadata.restaurantSlug || null,
+      },
       // Mode sandbox - utiliser des cartes de test
       payment_method_types: ['card'],
-    })
+    }
+
+    // Si un compte Stripe Connect est configuré, créer le PaymentIntent sur ce compte
+    // Sinon, créer le PaymentIntent sur le compte principal de la plateforme
+    // Avec Stripe Connect, on utilise l'option stripeAccount dans les options de requête
+    const requestOptions = stripeAccountId ? { stripeAccount: stripeAccountId } : undefined
+
+    const paymentIntent = await stripe.paymentIntents.create(
+      paymentIntentOptions,
+      requestOptions
+    )
 
     return res.status(200).json({
       clientSecret: paymentIntent.client_secret,

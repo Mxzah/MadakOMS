@@ -27,6 +27,45 @@ const elementOptions = {
   },
 }
 
+// Fonction pour formater les messages d'erreur Stripe en français
+function formatStripeElementError(errorMessage) {
+  if (!errorMessage) return null
+  
+  const message = errorMessage.toLowerCase()
+  
+  // Erreurs de numéro de carte
+  if (message.includes('card number is invalid') || message.includes('your card number is invalid') || message.includes('invalid_number')) {
+    return 'Le numéro de carte est invalide. Veuillez vérifier et réessayer.'
+  }
+  if (message.includes('incorrect_number')) {
+    return 'Le numéro de carte est incorrect. Veuillez vérifier et réessayer.'
+  }
+  
+  // Erreurs de date d'expiration
+  if (message.includes('invalid_expiry') || message.includes('invalid_expiry_month') || message.includes('invalid_expiry_year')) {
+    return 'La date d\'expiration est invalide. Veuillez vérifier et réessayer.'
+  }
+  if (message.includes('expired_card')) {
+    return 'Votre carte a expiré. Veuillez utiliser une autre carte.'
+  }
+  
+  // Erreurs de CVC
+  if (message.includes('invalid_cvc') || message.includes('invalid_cvv')) {
+    return 'Le code de sécurité (CVC) est invalide. Veuillez vérifier et réessayer.'
+  }
+  if (message.includes('incorrect_cvc') || message.includes('incorrect_cvv')) {
+    return 'Le code de sécurité (CVC) est incorrect. Veuillez vérifier et réessayer.'
+  }
+  
+  // Erreurs de carte refusée
+  if (message.includes('card_declined') || message.includes('card was declined') || message.includes('card has been declined')) {
+    return 'Votre carte a été refusée. Veuillez vérifier les informations ou utiliser une autre carte.'
+  }
+  
+  // Si le message n'est pas reconnu, le retourner tel quel (sera formaté par le parent)
+  return errorMessage
+}
+
 function CheckoutForm({ onCardReady, onError, disabled }) {
   const stripe = useStripe()
   const elements = useElements()
@@ -68,8 +107,10 @@ function CheckoutForm({ onCardReady, onError, disabled }) {
 
     const handleNumberChange = (event) => {
       if (event.error) {
-        setError(event.error.message)
-        onError?.(event.error.message)
+        const formattedError = formatStripeElementError(event.error.message)
+        setError(formattedError)
+        // Passer l'erreur formatée au parent pour qu'il puisse aussi l'afficher
+        onError?.(formattedError)
       } else {
         setError(null)
         onError?.(null)
@@ -80,8 +121,9 @@ function CheckoutForm({ onCardReady, onError, disabled }) {
 
     const handleExpiryChange = (event) => {
       if (event.error) {
-        setError(event.error.message)
-        onError?.(event.error.message)
+        const formattedError = formatStripeElementError(event.error.message)
+        setError(formattedError)
+        onError?.(formattedError)
       } else {
         setError(null)
         onError?.(null)
@@ -92,8 +134,9 @@ function CheckoutForm({ onCardReady, onError, disabled }) {
 
     const handleCvcChange = (event) => {
       if (event.error) {
-        setError(event.error.message)
-        onError?.(event.error.message)
+        const formattedError = formatStripeElementError(event.error.message)
+        setError(formattedError)
+        onError?.(formattedError)
       } else {
         setError(null)
         onError?.(null)
@@ -206,11 +249,8 @@ function CheckoutForm({ onCardReady, onError, disabled }) {
         )}
       </div>
 
-      {error && (
-        <div style={{ color: '#dc2626', fontSize: '14px', marginTop: '4px' }}>
-          {error}
-        </div>
-      )}
+      {/* Ne pas afficher l'erreur ici car elle est déjà affichée dans checkout.js via paymentError */}
+      {/* L'erreur est gérée par le parent pour éviter les doublons */}
     </div>
   )
 }

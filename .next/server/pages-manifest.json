@@ -2,10 +2,10 @@
   "/_app": "pages/_app.js",
   "/_error": "pages/_error.js",
   "/_document": "pages/_document.js",
+  "/approbation": "pages/approbation.js",
   "/restaurant/[slug]": "pages/restaurant/[slug].js",
   "/restaurant/[slug]/checkout": "pages/restaurant/[slug]/checkout.js",
-  "/approbation": "pages/approbation.js",
-  "/api/restaurant/[slug]/menu": "pages/api/restaurant/[slug]/menu.js",
-  "/api/stripe/create-payment-intent": "pages/api/stripe/create-payment-intent.js",
-  "/api/restaurant/[slug]/item/[id]/options": "pages/api/restaurant/[slug]/item/[id]/options.js"
+  "/api/restaurant/[slug]/orders": "pages/api/restaurant/[slug]/orders.js",
+  "/api/orders/[id]": "pages/api/orders/[id].js",
+  "/api/restaurant/[slug]/menu": "pages/api/restaurant/[slug]/menu.js"
 }

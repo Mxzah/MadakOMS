@@ -1,5 +1,6 @@
 import Stripe from 'stripe'
 import { supabaseServer } from '../../../lib/supabase/server'
+import { getRestaurantStripeAccountIdByOrderId } from '../../../lib/stripe/connect'
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || '', {
   apiVersion: '2024-11-20.acacia',
@@ -20,6 +21,12 @@ export default async function handler(req, res) {
 
     if (!orderId || typeof orderId !== 'string') {
       return res.status(400).json({ error: 'ID de commande requis' })
+    }
+
+    // Récupérer le compte Stripe Connect du restaurant associé à cette commande
+    const stripeAccountId = await getRestaurantStripeAccountIdByOrderId(orderId)
+    if (stripeAccountId) {
+      console.log(`Utilisation du compte Stripe Connect pour l'annulation: ${stripeAccountId}`)
     }
 
     // Récupérer le paiement associé à la commande
@@ -44,8 +51,11 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'PaymentIntent ID manquant' })
     }
 
-    // Récupérer le PaymentIntent depuis Stripe
-    const paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentId)
+    // Options de requête pour utiliser le compte Stripe Connect si disponible
+    const requestOptions = stripeAccountId ? { stripeAccount: stripeAccountId } : undefined
+
+    // Récupérer le PaymentIntent depuis Stripe (sur le bon compte)
+    const paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentId, {}, requestOptions)
 
     let result = {}
 
@@ -56,7 +66,7 @@ export default async function handler(req, res) {
       const existingRefunds = await stripe.refunds.list({
         payment_intent: paymentIntentId,
         limit: 10, // Récupérer tous les remboursements pour vérifier
-      })
+      }, requestOptions)
       
       // Vérifier s'il y a un remboursement complet (montant égal ou supérieur au paiement)
       const totalRefunded = existingRefunds.data?.reduce((sum, r) => sum + r.amount, 0) || 0
@@ -79,7 +89,7 @@ export default async function handler(req, res) {
             payment_intent: paymentIntentId,
             amount: remainingAmount,
             reason: 'requested_by_customer', // Raison du remboursement
-          })
+          }, requestOptions)
           result = {
             action: 'refunded',
             refundId: refund.id,
@@ -95,7 +105,7 @@ export default async function handler(req, res) {
     } else if (paymentIntent.status === 'requires_capture') {
       // Le paiement est autorisé mais pas encore capturé - annuler le PaymentIntent
       // Cela libère les fonds sans créer de remboursement
-      const cancelled = await stripe.paymentIntents.cancel(paymentIntentId)
+      const cancelled = await stripe.paymentIntents.cancel(paymentIntentId, {}, requestOptions)
       result = {
         action: 'cancelled',
         paymentIntentId: cancelled.id,
@@ -111,7 +121,7 @@ export default async function handler(req, res) {
     } else {
       // Autres statuts - essayer d'annuler quand même
       try {
-        const cancelled = await stripe.paymentIntents.cancel(paymentIntentId)
+        const cancelled = await stripe.paymentIntents.cancel(paymentIntentId, {}, requestOptions)
         result = {
           action: 'cancelled',
           paymentIntentId: cancelled.id,
@@ -124,7 +134,7 @@ export default async function handler(req, res) {
           const refunds = await stripe.refunds.list({
             payment_intent: paymentIntentId,
             limit: 1,
-          })
+          }, requestOptions)
           if (refunds.data && refunds.data.length > 0) {
             result = {
               action: 'already_refunded',
