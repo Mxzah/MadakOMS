@@ -9,8 +9,116 @@ import ItemModal from '../../../components/ItemModal'
 import { extractPolygonsFromGeoJson, pointInPolygons } from '../../../lib/geo'
 import { formatPrice } from '../../../lib/currency'
 import { calculateDeliveryFee } from '../../../lib/deliveryFee'
+import StripeCardElement from '../../../components/StripeCardElement'
+import { loadStripe } from '@stripe/stripe-js'
 
 const CheckoutMap = dynamic(() => import('../../../components/CheckoutMap'), { ssr: false })
+
+// Fonction pour formater les messages d'erreur Stripe en français
+// Stripe gère automatiquement tous les cas de test (cartes refusées, 3D Secure, etc.)
+// Cette fonction traduit simplement les messages d'erreur en français
+function formatStripeError(errorMessage) {
+  if (!errorMessage) return 'Une erreur est survenue lors du paiement.'
+  
+  const message = errorMessage.toLowerCase()
+  
+  // Erreurs d'authentification
+  if (message.includes('unable to authenticate') || message.includes('authentication_required')) {
+    return 'Impossible d\'authentifier votre méthode de paiement. Veuillez choisir une autre méthode de paiement et réessayer.'
+  }
+  
+  // Erreurs de carte refusée (général)
+  if (message.includes('card_declined') || 
+      message.includes('card was declined') || 
+      message.includes('card has been declined') ||
+      message.includes('your card has been declined')) {
+    return 'Votre carte a été refusée. Veuillez vérifier les informations ou utiliser une autre carte.'
+  }
+  
+  // Codes de déclin spécifiques Stripe (selon https://docs.stripe.com/declines)
+  if (message.includes('generic_decline')) {
+    return 'Votre carte a été refusée. Veuillez contacter votre banque ou utiliser une autre carte.'
+  }
+  if (message.includes('lost_card') || message.includes('stolen_card')) {
+    return 'Cette carte a été signalée comme perdue ou volée. Veuillez utiliser une autre carte.'
+  }
+  if (message.includes('pickup_card')) {
+    return 'Votre banque a demandé la rétention de cette carte. Veuillez contacter votre banque.'
+  }
+  if (message.includes('restricted_card')) {
+    return 'Cette carte est restreinte. Veuillez contacter votre banque ou utiliser une autre carte.'
+  }
+  if (message.includes('security_violation')) {
+    return 'Violation de sécurité détectée. Veuillez contacter votre banque.'
+  }
+  if (message.includes('service_not_allowed')) {
+    return 'Ce type de transaction n\'est pas autorisé pour cette carte. Veuillez utiliser une autre carte.'
+  }
+  if (message.includes('stop_payment_order')) {
+    return 'Un ordre d\'arrêt de paiement a été émis pour cette carte. Veuillez contacter votre banque.'
+  }
+  if (message.includes('testmode_decline')) {
+    return 'Cette carte de test a été refusée. Utilisez une autre carte de test.'
+  }
+  if (message.includes('withdrawal_count_limit_exceeded')) {
+    return 'Limite de retrait dépassée. Veuillez réessayer plus tard ou utiliser une autre carte.'
+  }
+  
+  // Erreurs de fonds
+  if (message.includes('insufficient_funds')) {
+    return 'Fonds insuffisants. Veuillez utiliser une autre carte ou vérifier votre solde.'
+  }
+  
+  // Erreurs de carte expirée
+  if (message.includes('expired_card')) {
+    return 'Votre carte a expiré. Veuillez utiliser une autre carte.'
+  }
+  
+  // Erreurs de données invalides
+  if (message.includes('incorrect_cvc') || message.includes('incorrect_cvv')) {
+    return 'Le code de sécurité (CVC) est incorrect. Veuillez vérifier et réessayer.'
+  }
+  if (message.includes('incorrect_number')) {
+    return 'Le numéro de carte est incorrect. Veuillez vérifier et réessayer.'
+  }
+  if (message.includes('invalid_cvc') || message.includes('invalid_cvv')) {
+    return 'Le code de sécurité (CVC) est invalide. Veuillez vérifier et réessayer.'
+  }
+  if (message.includes('invalid_number')) {
+    return 'Le numéro de carte est invalide. Veuillez vérifier et réessayer.'
+  }
+  if (message.includes('invalid_expiry_month') || message.includes('invalid_expiry_year')) {
+    return 'La date d\'expiration est invalide. Veuillez vérifier et réessayer.'
+  }
+  if (message.includes('invalid_expiry')) {
+    return 'La date d\'expiration est invalide. Veuillez vérifier et réessayer.'
+  }
+  
+  // Erreurs de traitement
+  if (message.includes('processing_error')) {
+    return 'Une erreur s\'est produite lors du traitement du paiement. Veuillez réessayer.'
+  }
+  if (message.includes('reenter_transaction')) {
+    return 'Une erreur s\'est produite. Veuillez réessayer la transaction.'
+  }
+  if (message.includes('try_again_later')) {
+    return 'Une erreur temporaire s\'est produite. Veuillez réessayer dans quelques instants.'
+  }
+  
+  // Erreurs de compte
+  if (message.includes('account_closed')) {
+    return 'Le compte associé à cette carte est fermé. Veuillez utiliser une autre carte.'
+  }
+  if (message.includes('account_frozen')) {
+    return 'Le compte associé à cette carte est gelé. Veuillez contacter votre banque.'
+  }
+  if (message.includes('do_not_honor')) {
+    return 'Votre banque a refusé la transaction. Veuillez contacter votre banque ou utiliser une autre carte.'
+  }
+  
+  // Si le message est déjà en français ou n'est pas reconnu, le retourner tel quel
+  return errorMessage
+}
 
 export default function CheckoutPage() {
   const { subtotal, lines, updateAt, removeAt, clear, showGlobalLoading, hideGlobalLoading, setRestaurantSlug } = useCart()
@@ -311,7 +419,7 @@ export default function CheckoutPage() {
         setOpenSection(service === 'pickup' ? 2 : 3)
         return
       }
-      if (!hasCard) {
+      if (!stripeCardElement && !hasCard) {
         setPaymentError('Ajoutez une carte pour payer maintenant.')
         setOpenSection(service === 'pickup' ? 2 : 3)
         return
@@ -365,7 +473,14 @@ export default function CheckoutPage() {
       : null
 
     const payment = (paymentMode === 'now')
-      ? { mode: 'card_now', hasCard, cardBrand, last4 }
+      ? { 
+          mode: 'card_now', 
+          hasCard, 
+          cardBrand, 
+          last4, 
+          stripePaymentIntentId,
+          stripePaymentMethodId, // Stocker aussi le PaymentMethod ID
+        }
       : { mode: service === 'pickup' ? 'pay_in_store' : 'cod', method: codMethod }
 
     const baseOrder = {
@@ -388,6 +503,71 @@ export default function CheckoutPage() {
     showGlobalLoading()
     setIsPlacingOrder(true)
     try {
+      // Si paiement en ligne avec Stripe, confirmer le paiement côté client AVANT de créer la commande
+      // Cela permet de gérer le 3D Secure si nécessaire
+      if (paymentMode === 'now' && stripeCardElement) {
+        // Vérifier que le PaymentMethod ID et le clientSecret sont disponibles
+        if (!stripePaymentMethodId || !stripeClientSecret) {
+          throw new Error('Informations de paiement incomplètes. Veuillez réessayer.')
+        }
+
+        // Vérifier à nouveau que la carte est canadienne et n'est pas prépayée avant de confirmer
+        // (sécurité supplémentaire au cas où le PaymentMethod aurait changé)
+        try {
+          const paymentMethod = await stripeCardElement.stripeInstance.retrievePaymentMethod(stripePaymentMethodId)
+          if (paymentMethod.card) {
+            // Vérifier que ce n'est pas une carte prépayée
+            if (paymentMethod.card.funding === 'prepaid') {
+              throw new Error('Les cartes prépayées ne sont pas acceptées. Veuillez utiliser une carte de crédit ou de débit.')
+            }
+            // Vérifier que la carte est canadienne
+            if (paymentMethod.card.country && paymentMethod.card.country !== 'CA') {
+              throw new Error('Seules les cartes émises au Canada sont acceptées. Veuillez utiliser une carte canadienne.')
+            }
+          }
+        } catch (pmRetrieveError) {
+          // Si l'erreur est notre message personnalisé, la relancer
+          if (pmRetrieveError.message && (
+            pmRetrieveError.message.includes('cartes émises au Canada') ||
+            pmRetrieveError.message.includes('cartes prépayées')
+          )) {
+            throw pmRetrieveError
+          }
+          // Si on ne peut pas récupérer le PaymentMethod, on continue quand même
+          // La vérification principale a déjà été faite lors de la création
+          console.warn('Impossible de vérifier les détails de la carte:', pmRetrieveError)
+        }
+
+        // Confirmer le paiement côté client (gère automatiquement le 3D Secure si nécessaire)
+        const { error: confirmError, paymentIntent } = await stripeCardElement.stripeInstance.confirmCardPayment(
+          stripeClientSecret,
+          {
+            payment_method: stripePaymentMethodId,
+          }
+        )
+
+        if (confirmError) {
+          // Erreur lors de la confirmation (carte refusée, etc.)
+          const errorMessage = formatStripeError(confirmError.message || confirmError.code || 'Le paiement a été refusé.')
+          throw new Error(errorMessage)
+        }
+
+        // Vérifier le statut du PaymentIntent
+        if (paymentIntent.status === 'succeeded') {
+          // Paiement confirmé avec succès (y compris après 3D Secure)
+          // Le PaymentIntent est maintenant confirmé, on peut créer la commande
+        } else if (paymentIntent.status === 'requires_capture') {
+          // Paiement autorisé mais nécessite une capture (pour capture manuelle)
+          // C'est OK, on peut créer la commande
+        } else {
+          // Autre statut (requires_action devrait être géré par confirmCardPayment)
+          throw new Error(`Le paiement n'a pas pu être confirmé. Statut: ${paymentIntent.status}`)
+        }
+
+        // Mettre à jour le PaymentIntent ID au cas où il aurait changé
+        setStripePaymentIntentId(paymentIntent.id)
+      }
+
       const response = await fetch(`/api/restaurant/${activeSlug}/orders`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
@@ -424,6 +604,11 @@ export default function CheckoutPage() {
         backendOrder: backendOrderPayload,
         restaurantSlug: activeSlug,
         timestamp: payload.placedAt || baseOrder.timestamp,
+        // Stocker les informations de paiement Stripe pour confirmation ultérieure
+        payment: paymentMode === 'now' && stripePaymentIntentId ? {
+          stripePaymentIntentId,
+          stripePaymentMethodId,
+        } : baseOrder.payment,
       }
 
       persistOrderLocally(persisted)
@@ -452,6 +637,11 @@ export default function CheckoutPage() {
   const [showCardModal, setShowCardModal] = useState(false)
   const [errors, setErrors] = useState({})
   const [paymentError, setPaymentError] = useState('')
+  const [stripeClientSecret, setStripeClientSecret] = useState(null)
+  const [stripePaymentIntentId, setStripePaymentIntentId] = useState(null)
+  const [stripeCardElement, setStripeCardElement] = useState(null)
+  const [stripePaymentMethodId, setStripePaymentMethodId] = useState(null)
+  const [loadingPaymentIntent, setLoadingPaymentIntent] = useState(false)
   useEffect(() => {
     try {
       const s = typeof window !== 'undefined' ? localStorage.getItem('lastRestaurantSlug') : null
@@ -475,6 +665,49 @@ export default function CheckoutPage() {
     if (!activeSlug) return
     setRestaurantSlug(activeSlug)
   }, [activeSlug, setRestaurantSlug])
+
+  // Créer automatiquement le PaymentIntent quand le modal de carte s'ouvre
+  useEffect(() => {
+    if (!showCardModal || stripeClientSecret || !activeSlug) return
+
+    let cancelled = false
+    async function createPaymentIntent() {
+      setLoadingPaymentIntent(true)
+      try {
+        const response = await fetch('/api/stripe/create-payment-intent', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            amount: total,
+            currency: 'cad',
+            metadata: {
+              restaurantSlug: activeSlug,
+            },
+          }),
+        })
+        if (cancelled) return
+        if (response.ok) {
+          const { clientSecret, id } = await response.json()
+          setStripeClientSecret(clientSecret)
+          setStripePaymentIntentId(id)
+        } else {
+          const errorData = await response.json().catch(() => ({}))
+          setPaymentError(errorData.error || 'Impossible de charger le formulaire de paiement.')
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setPaymentError('Erreur lors du chargement du formulaire.')
+        }
+      } finally {
+        if (!cancelled) {
+          setLoadingPaymentIntent(false)
+        }
+      }
+    }
+
+    createPaymentIntent()
+    return () => { cancelled = true }
+  }, [showCardModal, total, activeSlug, stripeClientSecret])
 
   useEffect(() => {
     if (!activeSlug) return
@@ -922,7 +1155,7 @@ export default function CheckoutPage() {
                 )}
               </div>
 
-              {paymentMode === 'now' && hasCard && (
+              {paymentMode === 'now' && (stripeCardElement || hasCard) && (
                 <div className={styles.rowItem} style={{borderTop:'none',paddingTop:12,marginTop:4}}>
                   <div className={`${styles.rowMain} ${styles.cardRowMain}`} aria-pressed="true">
                     <span className={styles.rowIcon} aria-hidden="true">
@@ -948,7 +1181,7 @@ export default function CheckoutPage() {
                       )}
                     </span>
                     <div className={styles.rowText}>
-                      <div className={styles.rowTitle}>{cardBrand === 'mastercard' ? 'Mastercard' : cardBrand === 'visa' ? 'Visa' : 'Carte enregistrée'} …{last4}</div>
+                      <div className={styles.rowTitle}>{cardBrand === 'mastercard' ? 'Mastercard' : cardBrand === 'visa' ? 'Visa' : 'Carte enregistrée'} {last4 ? `…${last4}` : ''}</div>
                       <div className={styles.rowSub}>Carte par défaut</div>
                     </div>
                     <button
@@ -959,6 +1192,9 @@ export default function CheckoutPage() {
                         setHasCard(false)
                         setLast4('')
                         setCardBrand(null)
+                        setStripeCardElement(null)
+                        setStripeClientSecret(null)
+                        setStripePaymentIntentId(null)
                       }}
                       aria-label="Supprimer cette carte"
                     >
@@ -985,7 +1221,7 @@ export default function CheckoutPage() {
                     <span>Carte de crédit / débit</span>
                     <span className={styles.paymentMethodArrow}>›</span>
                   </button>
-                  {(!hasCard && paymentError) && (
+                  {(!stripeCardElement && !hasCard && paymentError) && (
                     <div className={styles.errorText} style={{marginTop:8}}>{paymentError}</div>
                   )}
                 </div>
@@ -1018,9 +1254,9 @@ export default function CheckoutPage() {
                 <button
                   type="button"
                   className={styles.nextBtn}
-                  disabled={paymentMode==='now' && !hasCard}
+                  disabled={paymentMode==='now' && !stripeCardElement && !hasCard}
                   onClick={() => {
-                    if (paymentMode==='now' && !hasCard) {
+                    if (paymentMode==='now' && !stripeCardElement && !hasCard) {
                       setPaymentError('Ajoutez une carte pour payer maintenant.')
                       return
                     }
@@ -1286,131 +1522,123 @@ export default function CheckoutPage() {
         }}>
           <div className={styles.deliveryModal} role="dialog" aria-modal="true" onClick={(e)=>e.stopPropagation()}>
             <div className={styles.deliveryHeader}>Ajouter une carte</div>
-            <form
-              className={styles.deliveryForm}
-              onSubmit={(e)=>{
-                e.preventDefault()
-                const numberInput = e.target.elements.cardNumber
-                const cvcInput = e.target.elements.cvc
-                const expInput = e.target.elements.exp
-                const zipInput = e.target.elements.zip
-
-                const number = (numberInput.value || '').replace(/\s+/g,'')
-                const cvc = (cvcInput.value || '').trim()
-                const exp = cardExp.trim()
-                const zip = (zipInput.value || '').trim()
-
-                const newErrors = { number: '', cvc: '', exp: '', zip: '' }
-
-                if (number.length < 13 || number.length > 19 || !/^\d+$/.test(number)) {
-                  newErrors.number = 'Numéro de carte invalide.'
-                }
-                if (!/^\d{3,4}$/.test(cvc)) {
-                  newErrors.cvc = 'CVC invalide.'
-                }
-                if (!/^\d{2}\s*\/\s*\d{2}$/.test(exp)) {
-                  newErrors.exp = "Date d'expiration invalide. Utilisez le format MM / AA."
-                }
-                if (!zip) {
-                  newErrors.zip = 'Code postal requis.'
-                }
-
-                if (newErrors.number || newErrors.cvc || newErrors.exp || newErrors.zip) {
-                  setCardErrors(newErrors)
-                  return
-                }
-
-                const brand = number.startsWith('4') ? 'visa' : (number.match(/^(5[1-5]|2[2-7])/)?'mastercard':null)
-                setCardBrand(brand)
-                setLast4(number.slice(-4))
-                setHasCard(true)
-                setCardErrors({ number: '', cvc: '', exp: '', zip: '' })
-                setCardExp('')
-                setPaymentError('')
-                setShowCardModal(false)
-              }}
-            >
-              <div className={styles.row2}>
-                <div className={styles.deliveryField}>
-                  <label>Numéro de carte</label>
-                  <input
-                    type="text"
-                    name="cardNumber"
-                    placeholder="XXXX XXXX XXXX XXXX"
-                    inputMode="numeric"
-                    autoComplete="cc-number"
-                  />
-                  {cardErrors.number && (
-                    <div className={styles.fieldError}>{cardErrors.number}</div>
-                  )}
+            <div className={styles.deliveryForm}>
+              {loadingPaymentIntent ? (
+                <div style={{ padding: '12px', textAlign: 'center' }}>
+                  <p>Chargement du formulaire de paiement...</p>
                 </div>
-                <div className={styles.deliveryField}>
-                  <label>CVC</label>
-                  <input
-                    type="text"
-                    name="cvc"
-                    placeholder="CVC"
-                    inputMode="numeric"
-                    autoComplete="cc-csc"
-                  />
-                  {cardErrors.cvc && (
-                    <div className={styles.fieldError}>{cardErrors.cvc}</div>
-                  )}
-                </div>
-              </div>
-              <div className={styles.row2}>
-                <div className={styles.deliveryField}>
-                  <label>Date d'expiration</label>
-                  <input
-                    type="text"
-                    name="exp"
-                    placeholder="MM / AA"
-                    inputMode="numeric"
-                    autoComplete="cc-exp"
-                    value={cardExp}
-                    onChange={(e) => {
-                      let value = e.target.value.replace(/\D/g, '') // Remove non-digits
-                      // Limit to 4 digits
-                      if (value.length > 4) {
-                        value = value.slice(0, 4)
+              ) : stripeClientSecret ? (
+                <StripeCardElement
+                  clientSecret={stripeClientSecret}
+                  onCardReady={async (cardData) => {
+                    setStripeCardElement(cardData)
+                    setHasCard(true)
+                    setPaymentError('')
+                    
+                    // Créer le PaymentMethod immédiatement pendant que les éléments sont montés
+                    if (cardData && cardData.stripeInstance && cardData.cardNumber) {
+                      try {
+                        const { error: pmError, paymentMethod } = await cardData.stripeInstance.createPaymentMethod({
+                          type: 'card',
+                          card: cardData.cardNumber,
+                          billing_details: {
+                            name: firstName,
+                            email: email || undefined,
+                            phone: phone || undefined,
+                            address: {
+                              postal_code: cardData.postalCode || undefined,
+                            },
+                          },
+                        })
+
+                        if (pmError) {
+                          const errorMessage = formatStripeError(pmError.message || pmError.code || 'Impossible de créer la méthode de paiement.')
+                          setPaymentError(errorMessage)
+                        } else {
+                          // Vérifier que la carte est émise au Canada
+                          // Stripe retourne le pays d'émission dans paymentMethod.card.country
+                          if (paymentMethod.card) {
+                            const cardCountry = paymentMethod.card.country
+                            const cardFunding = paymentMethod.card.funding // 'credit', 'debit', 'prepaid', 'unknown'
+                            
+                            // Refuser les cartes prépayées
+                            if (cardFunding === 'prepaid') {
+                              setPaymentError('Les cartes prépayées ne sont pas acceptées. Veuillez utiliser une carte de crédit ou de débit.')
+                              setStripePaymentMethodId(null)
+                              setHasCard(false)
+                              return
+                            }
+                            
+                            // Vérifier que la carte est émise au Canada
+                            // Si le pays n'est pas disponible, on accepte quand même (cas rare)
+                            // mais on vérifiera à nouveau lors de la confirmation
+                            if (cardCountry && cardCountry !== 'CA') {
+                              setPaymentError('Seules les cartes émises au Canada sont acceptées. Veuillez utiliser une carte canadienne.')
+                              setStripePaymentMethodId(null)
+                              setHasCard(false)
+                              return
+                            }
+                            
+                            // Si le pays n'est pas disponible, on stocke quand même mais on vérifiera plus tard
+                            if (!cardCountry) {
+                              console.warn('Pays d\'émission de la carte non disponible, vérification reportée à la confirmation')
+                            }
+                          }
+                          
+                          setStripePaymentMethodId(paymentMethod.id)
+                          // Mettre à jour les informations de carte
+                          if (paymentMethod.card) {
+                            setLast4(paymentMethod.card.last4 || '')
+                            setCardBrand(paymentMethod.card.brand || null)
+                          }
+                        }
+                      } catch (err) {
+                        console.error('Erreur lors de la création du PaymentMethod:', err)
+                        setPaymentError('Erreur lors de la préparation du paiement.')
                       }
-                      // Format with "/" after 2 digits
-                      if (value.length >= 2) {
-                        value = value.slice(0, 2) + ' / ' + value.slice(2)
-                      }
-                      setCardExp(value)
-                      // Clear error when user types
-                      if (cardErrors.exp) {
-                        setCardErrors(prev => ({ ...prev, exp: '' }))
-                      }
-                    }}
-                  />
-                  {cardErrors.exp && (
-                    <div className={styles.fieldError}>{cardErrors.exp}</div>
-                  )}
+                    }
+                  }}
+                  onError={(error) => {
+                    if (error) {
+                      const errorMessage = formatStripeError(error)
+                      setPaymentError(errorMessage)
+                    } else {
+                      setPaymentError('')
+                    }
+                  }}
+                />
+              ) : (
+                <div style={{ padding: '12px', textAlign: 'center' }}>
+                  <p style={{ color: '#dc2626' }}>Impossible de charger le formulaire de paiement.</p>
                 </div>
-                <div className={styles.deliveryField}>
-                  <label>Code postal</label>
-                  <input
-                    type="text"
-                    name="zip"
-                    placeholder="Code postal"
-                    autoComplete="postal-code"
-                  />
-                  {cardErrors.zip && (
-                    <div className={styles.fieldError}>{cardErrors.zip}</div>
-                  )}
-                </div>
-              </div>
-              <div className={styles.deliveryActions}>
+              )}
+              {paymentError && (
+                <div className={styles.fieldError} style={{ marginTop: '8px' }}>{paymentError}</div>
+              )}
+              <div className={styles.deliveryActions} style={{ marginTop: '16px' }}>
                 <button type="button" className={styles.cancelBtn} onClick={() => {
                   setCardExp('')
                   setCardErrors({ number: '', cvc: '', exp: '', zip: '' })
+                  setStripeClientSecret(null)
+                  setStripePaymentIntentId(null)
+                  setStripeCardElement(null)
+                  setStripePaymentMethodId(null)
                   setShowCardModal(false)
                 }}>Retour</button>
-                <button type="submit" className={styles.saveBtn}>Ajouter la carte</button>
+                <button
+                  type="button"
+                  className={styles.saveBtn}
+                  disabled={!stripePaymentMethodId}
+                  onClick={() => {
+                    if (stripePaymentMethodId) {
+                      setShowCardModal(false)
+                    }
+                  }}
+                >
+                  Confirmer
+                </button>
               </div>
-            </form>
+            </div>
           </div>
         </div>
       )}

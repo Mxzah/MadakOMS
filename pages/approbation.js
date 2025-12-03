@@ -77,6 +77,7 @@ export default function ApprovalPage() {
     if (!patch) return
     setOrder((prev) => {
       if (!prev) return prev
+      const prevStatus = prev.status
       const nextStatus = patch.status || prev.status
       const nextService = patch.fulfillment ? (patch.fulfillment === 'pickup' ? 'pickup' : 'delivery') : prev.service
       const nextTimestamp = patch.placed_at || prev.timestamp
@@ -94,14 +95,40 @@ export default function ApprovalPage() {
       const nextCancellationReason = Object.prototype.hasOwnProperty.call(patch, 'cancellation_reason')
         ? patch.cancellation_reason
         : prev.cancellation_reason
+      const nextFailureReason = Object.prototype.hasOwnProperty.call(patch, 'failure_reason')
+        ? patch.failure_reason
+        : prev.failure_reason
       const changed =
         nextStatus !== prev.status ||
         nextService !== prev.service ||
         nextTimestamp !== prev.timestamp ||
         backendOrder !== prev.backendOrder ||
         nextAmounts !== prev.amounts ||
-        nextCancellationReason !== prev.cancellation_reason
+        nextCancellationReason !== prev.cancellation_reason ||
+        nextFailureReason !== prev.failure_reason
       if (!changed) return prev
+      
+      // Note: Le paiement est maintenant confirmé automatiquement dans advanceOrderStatus
+      // avant que le statut ne passe à "preparing". Si le paiement échoue, la commande
+      // sera automatiquement annulée et le statut passera à "cancelled"
+      
+      // Si le statut passe à "cancelled" (refus), annuler/rembourser le paiement
+      if (nextStatus === 'cancelled' && prev.orderId && prevStatus !== 'cancelled') {
+        // Annuler ou rembourser le paiement Stripe en arrière-plan
+        fetch('/api/stripe/cancel-payment', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ orderId: prev.orderId }),
+        }).then(async (res) => {
+          if (!res.ok) {
+            const error = await res.json().catch(() => ({}))
+            console.error('Erreur lors de l\'annulation/remboursement du paiement:', error)
+          }
+        }).catch((err) => {
+          console.error('Erreur lors de l\'annulation/remboursement du paiement:', err)
+        })
+      }
+      
       return {
         ...prev,
         status: nextStatus,
@@ -110,6 +137,7 @@ export default function ApprovalPage() {
         backendOrder,
         amounts: nextAmounts,
         cancellation_reason: nextCancellationReason,
+        failure_reason: nextFailureReason,
       }
     })
   }, [])
@@ -201,6 +229,7 @@ export default function ApprovalPage() {
 
   const isCancelled = order?.status === STATUS_CANCELLED
   const cancellationReason = order?.cancellation_reason || order?.backendOrder?.cancellation_reason || ''
+  const failureReason = order?.failure_reason || order?.backendOrder?.failure_reason || ''
 
   const homePath = useMemo(() => {
     const primary = order?.restaurantSlug
@@ -249,7 +278,9 @@ export default function ApprovalPage() {
             <div className={styles.cancelBanner} role="alert">
               <div className={styles.cancelTitle}>Commande annulée</div>
               <div className={styles.cancelMessage}>
-                {cancellationReason
+                {failureReason
+                  ? failureReason
+                  : cancellationReason
                   ? `Message de notre équipe : ${cancellationReason}`
                   : "Cette commande a été annulée par l'équipe du restaurant."}
               </div>
