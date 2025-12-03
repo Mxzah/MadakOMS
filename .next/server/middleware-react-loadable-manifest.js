@@ -1,1 +1,0 @@
-self.__REACT_LOADABLE_MANIFEST="{\"restaurant\\\\[slug]\\\\checkout.js -> ../../../components/CheckoutMap\":{\"id\":\"restaurant\\\\[slug]\\\\checkout.js -> ../../../components/CheckoutMap\",\"files\":[\"static/chunks/components_CheckoutMap_jsx.js\"]}}"
