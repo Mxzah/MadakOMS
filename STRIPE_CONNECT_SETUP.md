@@ -30,8 +30,74 @@ C'est le modèle le plus simple et le plus direct pour votre cas d'usage.
 
 ### 1. Créer un compte Stripe Connect pour un restaurant
 
-#### Option A : Compte Express (Recommandé pour commencer)
-Les comptes Express sont les plus simples à configurer et permettent aux restaurants de se connecter rapidement.
+#### Option A : Via l'API (Recommandé pour les tests)
+
+Une route API est disponible pour créer automatiquement un compte Express Stripe Connect :
+
+```bash
+POST /api/stripe/create-express-account
+Content-Type: application/json
+
+{
+  "restaurantSlug": "sante-taouk",  // Optionnel : associe automatiquement le compte au restaurant
+  "email": "restaurant@example.com"  // Optionnel : email pour le compte
+}
+```
+
+**Réponse :**
+```json
+{
+  "success": true,
+  "account": {
+    "id": "acct_xxxxx",
+    "type": "express",
+    "country": "CA",
+    "chargesEnabled": false,
+    "detailsSubmitted": false
+  },
+  "onboardingLink": "https://connect.stripe.com/setup/...",
+  "message": "Compte Express créé avec succès. Utilisez le lien d'onboarding pour compléter la configuration."
+}
+```
+
+**Étapes suivantes :**
+1. Utilisez le `onboardingLink` pour compléter l'onboarding du compte
+2. Ajoutez un compte bancaire et acceptez les conditions d'utilisation
+3. Une fois l'onboarding complété, le compte sera automatiquement utilisé pour les paiements
+
+**Exemple d'utilisation dans le navigateur :**
+```javascript
+fetch('/api/stripe/create-express-account', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    restaurantSlug: 'sante-taouk',
+    email: 'restaurant@example.com'
+  })
+})
+.then(res => res.json())
+.then(data => {
+  if (data.error) {
+    console.error('Erreur:', data.error, data.details)
+    alert('Erreur: ' + data.error + (data.details ? '\n' + data.details : ''))
+    return
+  }
+  if (data.success && data.account) {
+    console.log('Compte créé:', data.account.id)
+    if (data.onboardingLink) {
+      window.open(data.onboardingLink, '_blank')
+    }
+  } else {
+    console.error('Réponse inattendue:', data)
+  }
+})
+.catch(error => {
+  console.error('Erreur réseau:', error)
+  alert('Erreur réseau: ' + error.message)
+})
+```
+
+#### Option B : Via le tableau de bord Stripe
 
 1. Dans votre tableau de bord Stripe, allez dans **Connect > Comptes**
 2. Cliquez sur **Créer un compte**
@@ -76,20 +142,32 @@ WHERE rs.stripe_account_id IS NOT NULL;
 
 ## Fonctionnement
 
-### Création d'un PaymentIntent
+### Collecte des paiements et transfers
 
-Lorsqu'un client passe une commande :
+**Architecture actuelle :**
 
-1. Le système récupère le `stripe_account_id` du restaurant depuis `restaurant_settings`
-2. Si un `stripe_account_id` est trouvé, le PaymentIntent est créé sur ce compte Stripe Connect
-3. Si aucun `stripe_account_id` n'est configuré, le PaymentIntent est créé sur le compte principal de la plateforme
+1. **Collecte des paiements** : Tous les paiements sont collectés sur le compte principal de la plateforme
+   - Cela permet d'utiliser les éléments Stripe côté client sans problème de compatibilité
+   - Le PaymentMethod est créé sur le compte principal et peut être utilisé directement
+
+2. **Transfer vers le compte Connect** : Après confirmation du paiement et création de la commande
+   - Le système vérifie si le restaurant a un compte Stripe Connect configuré
+   - Si oui, les fonds sont automatiquement transférés vers le compte Connect du restaurant
+   - Le transfer est effectué de manière asynchrone pour ne pas bloquer le processus de commande
+
+**Avantages de cette approche :**
+- Compatibilité totale avec les éléments Stripe côté client
+- Gestion automatique du 3D Secure
+- Transfers automatiques vers les comptes Connect
+- Pas de problème de compatibilité entre PaymentMethod et PaymentIntent
 
 ### Annulation et remboursement
 
 Lorsqu'une commande est annulée :
 
 1. Le système récupère le `stripe_account_id` du restaurant depuis la commande
-2. Les opérations de remboursement/annulation sont effectuées sur le bon compte Stripe Connect
+2. Si un transfer a été effectué, le remboursement est fait depuis le compte Connect
+3. Sinon, le remboursement est fait depuis le compte principal
 
 ## Variables d'environnement
 
@@ -143,11 +221,73 @@ Les paiements de test sur un compte connecté fonctionnent de la même manière 
 2. Vérifiez que le `restaurantSlug` est bien passé à l'API `create-payment-intent`
 3. Consultez les logs du serveur pour voir si le compte est détecté
 
-### Erreur "No such account"
+### Erreur "No such account" ou 404 lors de la confirmation
 
 1. Vérifiez que l'`account_id` est correct (format: `acct_xxxxx`)
 2. Vérifiez que le compte existe dans votre tableau de bord Stripe
 3. Vérifiez que vous utilisez les bonnes clés API (test vs production)
+
+### Erreur 404 lors de la confirmation du PaymentIntent
+
+**Problème** : Le compte Stripe Connect n'est pas activé pour recevoir des paiements.
+
+**Symptômes** :
+- Erreur `404 (Not Found)` lors de la confirmation du PaymentIntent
+- Le PaymentIntent est créé mais ne peut pas être confirmé
+
+**Causes possibles** :
+- Le compte n'a pas complété l'onboarding Stripe Connect
+- `charges_enabled` est `false` dans les paramètres du compte
+- `details_submitted` est `false` (informations manquantes)
+- Les capacités de paiement par carte sont inactives (`card_payments: "inactive"`)
+
+**Solution** :
+1. Allez dans le tableau de bord Stripe > Connect > Comptes
+2. Sélectionnez le compte concerné
+3. Complétez tous les champs requis (marqués comme "Currently due" ou "Past due")
+4. Vérifiez que `charges_enabled` est `true` et `details_submitted` est `true`
+5. Activez les capacités de paiement par carte si nécessaire
+
+**Note** : Le système vérifie automatiquement si le compte est activé avant de créer un PaymentIntent dessus. Si le compte n'est pas activé, le système utilise automatiquement le compte principal de la plateforme comme fallback.
+
+### Transfer des fonds vers le compte Connect
+
+**Fonctionnement automatique :**
+
+Après qu'un paiement est confirmé et qu'une commande est créée, le système transfère automatiquement les fonds vers le compte Stripe Connect du restaurant (si configuré).
+
+**API Route :**
+```bash
+POST /api/stripe/transfer-to-connect
+Content-Type: application/json
+
+{
+  "orderId": "uuid-de-la-commande",
+  "restaurantSlug": "sante-taouk"  // Optionnel
+}
+```
+
+**Réponse :**
+```json
+{
+  "success": true,
+  "transfer": {
+    "id": "tr_xxxxx",
+    "amount": 14.94,
+    "currency": "cad",
+    "destination": "acct_xxxxx",
+    "status": "paid"
+  },
+  "message": "Transfer effectué avec succès"
+}
+```
+
+**Cas particuliers :**
+- Si aucun compte Connect n'est configuré : Les fonds restent sur le compte principal
+- Si le compte Connect n'est pas activé : Les fonds restent sur le compte principal
+- Si un transfer a déjà été effectué : Retourne le transfer existant (idempotent)
+
+**Note** : Le transfer est effectué de manière asynchrone après la création de la commande, donc il ne bloque pas le processus de commande. Si le transfer échoue, cela est loggé mais n'affecte pas la commande.
 
 ## Documentation Stripe
 

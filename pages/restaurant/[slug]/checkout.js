@@ -503,6 +503,9 @@ export default function CheckoutPage() {
     showGlobalLoading()
     setIsPlacingOrder(true)
     try {
+      // Déclarer paymentIntent en dehors du bloc pour qu'il soit accessible partout
+      let paymentIntent = null
+      
       // Si paiement en ligne avec Stripe, confirmer le paiement côté client AVANT de créer la commande
       // Cela permet de gérer le 3D Secure si nécessaire
       if (paymentMode === 'now' && stripeCardElement) {
@@ -511,45 +514,58 @@ export default function CheckoutPage() {
           throw new Error('Informations de paiement incomplètes. Veuillez réessayer.')
         }
 
-        // Vérifier à nouveau que la carte est canadienne et n'est pas prépayée avant de confirmer
-        // (sécurité supplémentaire au cas où le PaymentMethod aurait changé)
-        try {
-          const paymentMethod = await stripeCardElement.stripeInstance.retrievePaymentMethod(stripePaymentMethodId)
-          if (paymentMethod.card) {
-            // Vérifier que ce n'est pas une carte prépayée
-            if (paymentMethod.card.funding === 'prepaid') {
-              throw new Error('Les cartes prépayées ne sont pas acceptées. Veuillez utiliser une carte de crédit ou de débit.')
-            }
-            // Vérifier que la carte est canadienne
-            if (paymentMethod.card.country && paymentMethod.card.country !== 'CA') {
-              throw new Error('Seules les cartes émises au Canada sont acceptées. Veuillez utiliser une carte canadienne.')
-            }
-          }
-        } catch (pmRetrieveError) {
-          // Si l'erreur est notre message personnalisé, la relancer
-          if (pmRetrieveError.message && (
-            pmRetrieveError.message.includes('cartes émises au Canada') ||
-            pmRetrieveError.message.includes('cartes prépayées')
-          )) {
-            throw pmRetrieveError
-          }
-          // Si on ne peut pas récupérer le PaymentMethod, on continue quand même
-          // La vérification principale a déjà été faite lors de la création
-          console.warn('Impossible de vérifier les détails de la carte:', pmRetrieveError)
+        // Vérifier que stripeInstance est disponible
+        if (!stripeCardElement.stripeInstance) {
+          throw new Error('Stripe n\'est pas initialisé. Veuillez réessayer.')
         }
 
-        // Confirmer le paiement côté client (gère automatiquement le 3D Secure si nécessaire)
-        const { error: confirmError, paymentIntent } = await stripeCardElement.stripeInstance.confirmCardPayment(
-          stripeClientSecret,
-          {
+        // La vérification de la carte (pays et type) a déjà été faite lors de la création du PaymentMethod
+        // On peut maintenant confirmer le paiement directement
+
+        // Confirmer le paiement
+        // Pour Stripe Connect, on doit confirmer côté serveur car la confirmation côté client ne fonctionne pas
+        // Pour le compte principal, on confirme côté client pour gérer le 3D Secure
+        let confirmError
+        try {
+          if (!stripePaymentMethodId) {
+            throw new Error('Informations de paiement incomplètes. Veuillez réessayer.')
+          }
+          
+          // Pour l'instant, tous les paiements sont collectés sur le compte principal
+          // car un PaymentMethod créé sur le compte principal ne peut pas être utilisé
+          // avec un PaymentIntent créé sur le compte Connect.
+          // 
+          // Solution future: Implémenter les transfers vers le compte Connect après la collecte.
+          const confirmOptions = {
             payment_method: stripePaymentMethodId,
           }
-        )
+          
+          const result = await stripeCardElement.stripeInstance.confirmCardPayment(
+            stripeClientSecret,
+            confirmOptions
+          )
+          confirmError = result.error
+          paymentIntent = result.paymentIntent
+        } catch (confirmException) {
+          // Gérer les erreurs réseau ou autres erreurs inattendues
+          console.error('[Checkout] Erreur lors de la confirmation du paiement:', confirmException)
+          
+          // Si l'erreur indique que le PaymentIntent n'existe pas, c'est probablement un problème de compte Connect
+          if (confirmException.message && confirmException.message.includes('No such payment_intent')) {
+            throw new Error('Le paiement n\'a pas pu être trouvé. Cela peut être dû à un problème de configuration Stripe Connect. Veuillez réessayer.')
+          }
+          
+          throw new Error('Une erreur est survenue lors de la confirmation du paiement. Veuillez réessayer.')
+        }
 
         if (confirmError) {
           // Erreur lors de la confirmation (carte refusée, etc.)
           const errorMessage = formatStripeError(confirmError.message || confirmError.code || 'Le paiement a été refusé.')
           throw new Error(errorMessage)
+        }
+
+        if (!paymentIntent) {
+          throw new Error('Impossible de confirmer le paiement. Veuillez réessayer.')
         }
 
         // Vérifier le statut du PaymentIntent
@@ -613,6 +629,24 @@ export default function CheckoutPage() {
 
       persistOrderLocally(persisted)
       clear()
+
+      // Transférer les fonds vers le compte Stripe Connect du restaurant si configuré
+      // On fait cela de manière asynchrone pour ne pas bloquer la redirection
+      if (paymentMode === 'now' && paymentIntent && paymentIntent.status === 'succeeded') {
+        // Appeler l'API de transfer de manière asynchrone (ne pas attendre)
+        fetch('/api/stripe/transfer-to-connect', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            orderId,
+            restaurantSlug: activeSlug,
+          }),
+        }).catch((transferError) => {
+          // Logger l'erreur mais ne pas bloquer le processus
+          console.error('[Checkout] Erreur lors du transfer vers le compte Connect:', transferError)
+        })
+      }
+
       await router.push('/approbation')
     } catch (err) {
       const message = err?.message || 'Erreur lors de la soumission de la commande.'
@@ -639,6 +673,7 @@ export default function CheckoutPage() {
   const [paymentError, setPaymentError] = useState('')
   const [stripeClientSecret, setStripeClientSecret] = useState(null)
   const [stripePaymentIntentId, setStripePaymentIntentId] = useState(null)
+  const [stripeAccountId, setStripeAccountId] = useState(null) // Stocker le compte Connect utilisé
   const [stripeCardElement, setStripeCardElement] = useState(null)
   const [stripePaymentMethodId, setStripePaymentMethodId] = useState(null)
   const [loadingPaymentIntent, setLoadingPaymentIntent] = useState(false)
@@ -688,9 +723,10 @@ export default function CheckoutPage() {
         })
         if (cancelled) return
         if (response.ok) {
-          const { clientSecret, id } = await response.json()
+          const { clientSecret, id, stripeAccountId: accountId } = await response.json()
           setStripeClientSecret(clientSecret)
           setStripePaymentIntentId(id)
+          setStripeAccountId(accountId || null) // Stocker le compte Connect utilisé
         } else {
           const errorData = await response.json().catch(() => ({}))
           setPaymentError(errorData.error || 'Impossible de charger le formulaire de paiement.')
@@ -869,7 +905,10 @@ export default function CheckoutPage() {
     } else if (address) {
       nextErrors.serviceArea = 'Sélectionnez une adresse valide dans la liste.'
     }
-    if (nextErrors.address) setAddrOpen(true)
+    // Only set addrOpen to true if the address modal is open to avoid triggering unnecessary searches
+    if (nextErrors.address && showAddressModal) {
+      setAddrOpen(true)
+    }
     setErrors((prev) => ({ ...prev, ...nextErrors }))
     return Object.keys(nextErrors).length === 0
   }
@@ -901,16 +940,48 @@ export default function CheckoutPage() {
     if (debounceRef.current) clearTimeout(debounceRef.current)
     if (!addressDraft || addressDraft.trim().length < 3) {
       setAddrResults([])
+      setAddrLoading(false)
       return
     }
     debounceRef.current = setTimeout(async () => {
+      let timeoutId = null
       try {
         if (addrAbort.current) addrAbort.current.abort()
         addrAbort.current = new AbortController()
         setAddrLoading(true)
+        
+        // Add timeout to prevent infinite loading (10 seconds)
+        timeoutId = setTimeout(() => {
+          if (addrAbort.current && !addrAbort.current.signal.aborted) {
+            addrAbort.current.abort()
+          }
+        }, 10000)
+        
         const url = `https://photon.komoot.io/api/?q=${encodeURIComponent(addressDraft)}&lang=fr&limit=5`
-        const res = await fetch(url, { signal: addrAbort.current.signal })
+        const res = await fetch(url, { 
+          signal: addrAbort.current.signal,
+          headers: {
+            'Accept': 'application/json',
+          }
+        })
+        
+        // Clear timeout if request completed
+        if (timeoutId) {
+          clearTimeout(timeoutId)
+          timeoutId = null
+        }
+        
+        if (!res.ok) {
+          throw new Error(`API error: ${res.status} ${res.statusText}`)
+        }
+        
         const json = await res.json()
+        
+        // Check if response was aborted
+        if (addrAbort.current?.signal.aborted) {
+          return
+        }
+        
         const items = (json.features || []).map(f => {
           const [lng, lat] = f.geometry.coordinates
           const p = f.properties || {}
@@ -922,10 +993,22 @@ export default function CheckoutPage() {
         })
         setAddrResults(items)
       } catch (e) {
+        // Clear timeout on error
+        if (timeoutId) {
+          clearTimeout(timeoutId)
+        }
         if (e.name !== 'AbortError') {
+          // Only log non-abort errors for debugging
+          if (process.env.NODE_ENV === 'development') {
+            console.warn('Address search error:', e.message)
+          }
           setAddrResults([])
         }
       } finally {
+        // Ensure timeout is cleared and loading is reset
+        if (timeoutId) {
+          clearTimeout(timeoutId)
+        }
         setAddrLoading(false)
       }
     }, 300)
@@ -1536,7 +1619,11 @@ export default function CheckoutPage() {
                     setHasCard(true)
                     setPaymentError('')
                     
-                    // Créer le PaymentMethod immédiatement pendant que les éléments sont montés
+                    // Même pour Stripe Connect, on crée le PaymentMethod côté client sur le compte principal
+                    // On l'utilisera ensuite pour confirmer le PaymentIntent sur le compte Connect
+                    // Stripe permet d'utiliser un PaymentMethod du compte principal avec un PaymentIntent du compte Connect
+                    
+                    // Pour le compte principal, on peut créer le PaymentMethod maintenant
                     if (cardData && cardData.stripeInstance && cardData.cardNumber) {
                       try {
                         const { error: pmError, paymentMethod } = await cardData.stripeInstance.createPaymentMethod({
@@ -1629,9 +1716,9 @@ export default function CheckoutPage() {
                 <button
                   type="button"
                   className={styles.saveBtn}
-                  disabled={!stripePaymentMethodId}
+                  disabled={!stripePaymentMethodId && !(stripeAccountId && stripeCardElement)}
                   onClick={() => {
-                    if (stripePaymentMethodId) {
+                    if (stripePaymentMethodId || (stripeAccountId && stripeCardElement)) {
                       setShowCardModal(false)
                     }
                   }}

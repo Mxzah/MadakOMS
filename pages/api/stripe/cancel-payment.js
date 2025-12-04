@@ -25,9 +25,6 @@ export default async function handler(req, res) {
 
     // Récupérer le compte Stripe Connect du restaurant associé à cette commande
     const stripeAccountId = await getRestaurantStripeAccountIdByOrderId(orderId)
-    if (stripeAccountId) {
-      console.log(`Utilisation du compte Stripe Connect pour l'annulation: ${stripeAccountId}`)
-    }
 
     // Récupérer le paiement associé à la commande
     const { data: payment, error: paymentError } = await supabaseServer
@@ -52,10 +49,28 @@ export default async function handler(req, res) {
     }
 
     // Options de requête pour utiliser le compte Stripe Connect si disponible
-    const requestOptions = stripeAccountId ? { stripeAccount: stripeAccountId } : undefined
+    let requestOptions = stripeAccountId ? { stripeAccount: stripeAccountId } : undefined
 
     // Récupérer le PaymentIntent depuis Stripe (sur le bon compte)
-    const paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentId, {}, requestOptions)
+    let paymentIntent
+    try {
+      paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentId, {}, requestOptions)
+    } catch (retrieveError) {
+      // Si le PaymentIntent n'est pas trouvé sur le compte spécifié, essayer sur le compte principal
+      if (retrieveError.code === 'resource_missing' && stripeAccountId) {
+        console.warn(`PaymentIntent non trouvé sur le compte Connect ${stripeAccountId}, tentative sur le compte principal`)
+        try {
+          paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentId)
+          // Si trouvé sur le compte principal, utiliser le compte principal pour toutes les opérations
+          requestOptions = undefined
+        } catch (fallbackError) {
+          // Si toujours pas trouvé, retourner l'erreur originale
+          throw retrieveError
+        }
+      } else {
+        throw retrieveError
+      }
+    }
 
     let result = {}
 
