@@ -26,16 +26,15 @@ export default async function handler(req, res) {
     // Récupérer le compte Stripe Connect du restaurant associé à cette commande
     const stripeAccountId = await getRestaurantStripeAccountIdByOrderId(orderId)
 
-    // Récupérer le paiement associé à la commande
+    // Récupérer le paiement associé à la commande (avec métadonnées pour vérifier les transfers)
     const { data: payment, error: paymentError } = await supabaseServer
       .from('payments')
-      .select('id, processor_id, status, amount')
+      .select('id, processor_id, status, amount, metadata')
       .eq('order_id', orderId)
       .eq('processor', 'stripe')
       .maybeSingle()
 
     if (paymentError) {
-      console.error('Erreur lors de la récupération du paiement:', paymentError)
       return res.status(500).json({ error: 'Impossible de récupérer le paiement' })
     }
 
@@ -48,40 +47,23 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'PaymentIntent ID manquant' })
     }
 
-    // Options de requête pour utiliser le compte Stripe Connect si disponible
-    let requestOptions = stripeAccountId ? { stripeAccount: stripeAccountId } : undefined
-
-    // Récupérer le PaymentIntent depuis Stripe (sur le bon compte)
-    let paymentIntent
-    try {
-      paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentId, {}, requestOptions)
-    } catch (retrieveError) {
-      // Si le PaymentIntent n'est pas trouvé sur le compte spécifié, essayer sur le compte principal
-      if (retrieveError.code === 'resource_missing' && stripeAccountId) {
-        console.warn(`PaymentIntent non trouvé sur le compte Connect ${stripeAccountId}, tentative sur le compte principal`)
-        try {
-          paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentId)
-          // Si trouvé sur le compte principal, utiliser le compte principal pour toutes les opérations
-          requestOptions = undefined
-        } catch (fallbackError) {
-          // Si toujours pas trouvé, retourner l'erreur originale
-          throw retrieveError
-        }
-      } else {
-        throw retrieveError
-      }
-    }
+    // Récupérer le PaymentIntent pour vérifier s'il utilise Application Fees
+    const paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentId)
+    
+    // Vérifier si le PaymentIntent utilise Application Fees
+    const usesApplicationFees = paymentIntent.application_fee_amount && paymentIntent.transfer_data?.destination
 
     let result = {}
 
     // Déterminer l'action à effectuer basée sur le statut réel du PaymentIntent dans Stripe
     // Le statut dans la BD peut ne pas être à jour, donc on se base sur Stripe
+    // IMPORTANT: Tous les paiements sont sur le compte principal, donc on n'utilise pas requestOptions
     if (paymentIntent.status === 'succeeded') {
       // Le paiement a été confirmé et capturé - vérifier d'abord s'il y a déjà un remboursement
       const existingRefunds = await stripe.refunds.list({
         payment_intent: paymentIntentId,
         limit: 10, // Récupérer tous les remboursements pour vérifier
-      }, requestOptions)
+      })
       
       // Vérifier s'il y a un remboursement complet (montant égal ou supérieur au paiement)
       const totalRefunded = existingRefunds.data?.reduce((sum, r) => sum + r.amount, 0) || 0
@@ -97,30 +79,39 @@ export default async function handler(req, res) {
           amount: totalRefunded / 100,
         }
       } else {
-        // Créer un remboursement pour le montant restant
+        // Créer un remboursement pour le montant restant depuis le compte principal
         const remainingAmount = paymentAmountCents - totalRefunded
         try {
-          const refund = await stripe.refunds.create({
+          // Si le PaymentIntent utilise Application Fees, utiliser reverse_transfer: true
+          // Cela reverse automatiquement l'application fee et le transfer principal
+          const refundOptions = {
             payment_intent: paymentIntentId,
             amount: remainingAmount,
-            reason: 'requested_by_customer', // Raison du remboursement
-          }, requestOptions)
+            reason: 'requested_by_customer',
+          }
+          
+          // Avec Application Fees, reverse_transfer reverse automatiquement les transfers
+          if (usesApplicationFees) {
+            refundOptions.reverse_transfer = true
+          }
+          
+          const refund = await stripe.refunds.create(refundOptions)
           result = {
             action: 'refunded',
             refundId: refund.id,
             status: refund.status,
             amount: refund.amount / 100, // Convertir en dollars
             totalRefunded: (totalRefunded + refund.amount) / 100, // Montant total remboursé
+            reverseTransfer: usesApplicationFees,
           }
         } catch (refundError) {
-          console.error('Erreur lors de la création du remboursement:', refundError)
           throw refundError
         }
       }
     } else if (paymentIntent.status === 'requires_capture') {
       // Le paiement est autorisé mais pas encore capturé - annuler le PaymentIntent
       // Cela libère les fonds sans créer de remboursement
-      const cancelled = await stripe.paymentIntents.cancel(paymentIntentId, {}, requestOptions)
+      const cancelled = await stripe.paymentIntents.cancel(paymentIntentId)
       result = {
         action: 'cancelled',
         paymentIntentId: cancelled.id,
@@ -136,7 +127,7 @@ export default async function handler(req, res) {
     } else {
       // Autres statuts - essayer d'annuler quand même
       try {
-        const cancelled = await stripe.paymentIntents.cancel(paymentIntentId, {}, requestOptions)
+        const cancelled = await stripe.paymentIntents.cancel(paymentIntentId)
         result = {
           action: 'cancelled',
           paymentIntentId: cancelled.id,
@@ -149,7 +140,7 @@ export default async function handler(req, res) {
           const refunds = await stripe.refunds.list({
             payment_intent: paymentIntentId,
             limit: 1,
-          }, requestOptions)
+          })
           if (refunds.data && refunds.data.length > 0) {
             result = {
               action: 'already_refunded',
@@ -174,15 +165,25 @@ export default async function handler(req, res) {
       newStatus = 'failed'
     }
     
+    // Mettre à jour les métadonnées pour enregistrer le remboursement
+    const updatedMetadata = {
+      ...payment.metadata,
+      refunded_at: new Date().toISOString(),
+    }
+    
+    if (usesApplicationFees && result.action === 'refunded') {
+      updatedMetadata.refund_reverse_transfer = true
+    }
+    
     const { error: updateError } = await supabaseServer
       .from('payments')
       .update({
         status: newStatus,
+        metadata: updatedMetadata,
       })
       .eq('id', payment.id)
 
     if (updateError) {
-      console.error('Erreur lors de la mise à jour du paiement:', updateError)
       // Ne pas échouer si le remboursement/annulation a réussi
       // On retourne quand même le succès car l'action principale a été effectuée
       return res.status(200).json({ 
@@ -197,7 +198,6 @@ export default async function handler(req, res) {
       ...result,
     })
   } catch (error) {
-    console.error('Erreur lors de l\'annulation/remboursement du paiement:', error)
     return res.status(500).json({ 
       error: 'Impossible d\'annuler/rembourser le paiement',
       details: error.message 

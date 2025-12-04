@@ -24,7 +24,8 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'Nouveau statut requis' })
     }
 
-    console.log(`[Webhook Order Status] Commande ${orderId}: ${oldStatus || 'N/A'} -> ${newStatus}`)
+    // Note: Les remboursements sont gérés automatiquement par le cron job
+    // (process-refund-events.js) qui traite les événements créés par le trigger SQL
 
     // Récupérer les informations complètes de la commande
     const { data: order, error: orderError } = await supabaseServer
@@ -45,17 +46,11 @@ export default async function handler(req, res) {
       .maybeSingle()
 
     if (orderError) {
-      console.error('[Webhook Order Status] Erreur lors de la récupération de la commande:', orderError)
       return res.status(500).json({ error: 'Impossible de récupérer la commande' })
     }
 
     if (!order) {
       return res.status(404).json({ error: 'Commande introuvable' })
-    }
-
-    // Vérifier que le statut correspond
-    if (order.status !== newStatus) {
-      console.warn(`[Webhook Order Status] Statut mismatch: DB=${order.status}, Webhook=${newStatus}`)
     }
 
     // Déterminer le numéro de téléphone du client
@@ -67,7 +62,6 @@ export default async function handler(req, res) {
     }
 
     if (!customerPhone) {
-      console.warn(`[Webhook Order Status] Pas de numéro de téléphone pour la commande ${orderId}`)
       return res.status(200).json({
         success: true,
         message: 'Pas de numéro de téléphone disponible',
@@ -77,7 +71,6 @@ export default async function handler(req, res) {
 
     const formattedPhone = formatPhoneForSMS(customerPhone)
     if (!formattedPhone) {
-      console.warn(`[Webhook Order Status] Format de numéro invalide: ${customerPhone}`)
       return res.status(200).json({
         success: true,
         message: 'Format de numéro invalide',
@@ -116,18 +109,14 @@ export default async function handler(req, res) {
       })
     }
 
-    console.log(`[Webhook Order Status] Envoi du SMS à ${formattedPhone} pour la commande #${orderNumber}`)
     const result = await sendSMS(formattedPhone, message.trim())
 
     if (!result.success) {
-      console.error(`[Webhook Order Status] Échec de l'envoi du SMS: ${result.error}`)
       return res.status(500).json({
         error: 'Impossible d\'envoyer le SMS',
         details: result.error,
       })
     }
-
-    console.log(`[Webhook Order Status] SMS envoyé avec succès. SID: ${result.sid}`)
     return res.status(200).json({
       success: true,
       message: 'SMS envoyé avec succès',
@@ -136,7 +125,6 @@ export default async function handler(req, res) {
       orderNumber,
     })
   } catch (error) {
-    console.error('[Webhook Order Status] Erreur inattendue:', error)
     return res.status(500).json({
       error: 'Erreur interne du serveur',
       details: error.message,

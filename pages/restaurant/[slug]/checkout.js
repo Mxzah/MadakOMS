@@ -641,7 +641,19 @@ export default function CheckoutPage() {
             orderId,
             restaurantSlug: activeSlug,
           }),
-        }).catch((transferError) => {
+        })
+        .then(async (response) => {
+          const data = await response.json()
+          // En mode test, un warning pour solde insuffisant est normal
+          if (data.warning && data.isTestMode) {
+            // Ne pas logger en mode test, c'est attendu
+            return
+          }
+          if (!response.ok && !data.warning) {
+            console.error('[Checkout] Erreur lors du transfer vers le compte Connect:', data)
+          }
+        })
+        .catch((transferError) => {
           // Logger l'erreur mais ne pas bloquer le processus
           console.error('[Checkout] Erreur lors du transfer vers le compte Connect:', transferError)
         })

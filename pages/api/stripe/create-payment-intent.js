@@ -25,35 +25,27 @@ export default async function handler(req, res) {
     // Convertir le montant en centimes (Stripe utilise les plus petites unités de la devise)
     const amountInCents = Math.round(amount * 100)
 
-    // NOTE: Pour l'instant, on n'utilise pas le compte Connect pour les paiements directs
-    // car un PaymentMethod créé sur le compte principal ne peut pas être utilisé avec
-    // un PaymentIntent créé sur le compte Connect.
-    // 
-    // Solution future: Collecter les paiements sur le compte principal et transférer
-    // les fonds au compte Connect après via Stripe Transfers.
-    //
-    // Pour l'instant, tous les paiements sont collectés sur le compte principal.
+    // Récupérer le compte Stripe Connect du restaurant si disponible
     let stripeAccountId = null
-    
-    // TODO: Implémenter les transfers vers le compte Connect après la collecte des paiements
-    // if (restaurantSlug && typeof restaurantSlug === 'string') {
-    //   const accountId = await getRestaurantStripeAccountIdBySlug(restaurantSlug)
-    //   if (accountId) {
-    //     // Vérifier que le compte est activé pour recevoir des paiements
-    //     try {
-    //       const account = await stripe.accounts.retrieve(accountId)
-    //       if (account.charges_enabled && account.details_submitted) {
-    //         stripeAccountId = accountId
-    //         console.log(`Utilisation du compte Stripe Connect activé pour le restaurant: ${stripeAccountId}`)
-    //       } else {
-    //         console.warn(`Le compte Stripe Connect ${accountId} n'est pas activé (charges_enabled: ${account.charges_enabled}, details_submitted: ${account.details_submitted}). Utilisation du compte principal.`)
-    //       }
-    //     } catch (accountError) {
-    //       console.error(`Erreur lors de la vérification du compte Stripe Connect ${accountId}:`, accountError.message)
-    //       // En cas d'erreur, ne pas utiliser le compte Connect et utiliser le compte principal
-    //     }
-    //   }
-    // }
+    if (restaurantSlug && typeof restaurantSlug === 'string') {
+      const accountId = await getRestaurantStripeAccountIdBySlug(restaurantSlug)
+      if (accountId) {
+        // Vérifier que le compte est activé pour recevoir des paiements
+        try {
+          const account = await stripe.accounts.retrieve(accountId)
+          if (account.charges_enabled && account.details_submitted) {
+            stripeAccountId = accountId
+          }
+        } catch (accountError) {
+          // En cas d'erreur, ne pas utiliser le compte Connect et utiliser le compte principal
+        }
+      }
+    }
+
+    // Calculer l'application fee (frais Stripe : 2.9% + $0.30)
+    // Cette fee sera gardée par la plateforme, puis transférée au restaurant
+    const stripeFee = Math.round(amountInCents * 0.029 + 30) // 2.9% + $0.30
+    const applicationFeeAmount = stripeFee
 
     // Options pour créer le PaymentIntent
     const paymentIntentOptions = {
@@ -61,27 +53,27 @@ export default async function handler(req, res) {
       currency: currency.toLowerCase(),
       metadata: {
         ...metadata,
-        // Ajouter le restaurantSlug dans les metadata si disponible
         restaurantSlug: restaurantSlug || metadata.restaurantSlug || null,
       },
-      // Mode sandbox - utiliser des cartes de test
       payment_method_types: ['card'],
     }
 
-    // Si un compte Stripe Connect est configuré, créer le PaymentIntent sur ce compte
-    // Sinon, créer le PaymentIntent sur le compte principal de la plateforme
-    // Avec Stripe Connect, on utilise l'option stripeAccount dans les options de requête
-    const requestOptions = stripeAccountId ? { stripeAccount: stripeAccountId } : undefined
+    // Si un compte Stripe Connect est configuré, utiliser Application Fees
+    // Sinon, créer le PaymentIntent normalement sur le compte principal
+    if (stripeAccountId) {
+      paymentIntentOptions.application_fee_amount = applicationFeeAmount
+      paymentIntentOptions.transfer_data = {
+        destination: stripeAccountId,
+      }
+    }
 
-    const paymentIntent = await stripe.paymentIntents.create(
-      paymentIntentOptions,
-      requestOptions
-    )
+    const paymentIntent = await stripe.paymentIntents.create(paymentIntentOptions)
 
     return res.status(200).json({
       clientSecret: paymentIntent.client_secret,
       id: paymentIntent.id,
-      stripeAccountId: stripeAccountId || null, // Inclure l'account ID pour déboguer
+      stripeAccountId: stripeAccountId || null,
+      applicationFeeAmount: stripeAccountId ? applicationFeeAmount / 100 : null, // En dollars pour référence
     })
   } catch (error) {
     console.error('Erreur lors de la création du PaymentIntent:', error)
