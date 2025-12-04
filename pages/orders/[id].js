@@ -128,6 +128,33 @@ export default function OrderTrackPage() {
     }
   }, [order?.driver_id])
 
+  // Vérifier la proximité du livreur périodiquement quand la commande est en route
+  useEffect(() => {
+    if (!id || !order || order.status !== 'enroute' || order.fulfillment !== 'delivery') {
+      return undefined
+    }
+
+    // Vérifier la proximité toutes les 30 secondes
+    const checkProximity = async () => {
+      try {
+        await fetch(`/api/orders/${id}/check-driver-proximity`, {
+          method: 'POST',
+        })
+      } catch (error) {
+        // Ignorer les erreurs silencieusement pour ne pas perturber l'expérience utilisateur
+        console.error('[Order Tracking] Erreur lors de la vérification de proximité:', error)
+      }
+    }
+
+    // Vérifier immédiatement, puis toutes les 30 secondes
+    checkProximity()
+    const interval = setInterval(checkProximity, 30000) // 30 secondes
+
+    return () => {
+      clearInterval(interval)
+    }
+  }, [id, order?.status, order?.fulfillment])
+
   const normalizedStatus = normalizeStatus(order?.status)
 
   const isFailed = normalizedStatus === 'failed'
@@ -346,22 +373,36 @@ export default function OrderTrackPage() {
 
               <div className={styles.eventsSection}>
                 <div className={styles.eventsTitle}>Activité récente</div>
-                {(!order.events || order.events.length === 0) && (
-                  <div className={styles.emptyState}>Aucune mise à jour pour le moment.</div>
-                )}
-                {order.events && order.events.length > 0 && (
-                  <div className={styles.eventsList}>
-                    {order.events.map((event) => (
-                      <div key={event.id} className={styles.eventRow}>
-                        <div className={styles.eventTime}>{formatDateTime(event.created_at, { dateStyle: 'short', timeStyle: 'short' })}</div>
-                        <div className={styles.eventTitle}>{formatEventTitle(event, order.fulfillment)}</div>
-                        {formatEventDescription(event) && (
-                          <div className={styles.eventDesc}>{formatEventDescription(event)}</div>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                )}
+                {(() => {
+                  // Filtrer les événements status_changed qui n'ont pas de payload.status valide
+                  // (ceux qui affichent juste "status changed" sans information utile)
+                  const filteredEvents = (order.events || []).filter((event) => {
+                    if (event.event_type === 'status_changed') {
+                      // Garder seulement ceux qui ont un payload.status valide
+                      return event.payload?.status && typeof event.payload.status === 'string'
+                    }
+                    // Garder tous les autres types d'événements
+                    return true
+                  })
+                  
+                  if (filteredEvents.length === 0) {
+                    return <div className={styles.emptyState}>Aucune mise à jour pour le moment.</div>
+                  }
+                  
+                  return (
+                    <div className={styles.eventsList}>
+                      {filteredEvents.map((event) => (
+                        <div key={event.id} className={styles.eventRow}>
+                          <div className={styles.eventTime}>{formatDateTime(event.created_at, { dateStyle: 'short', timeStyle: 'short' })}</div>
+                          <div className={styles.eventTitle}>{formatEventTitle(event, order.fulfillment)}</div>
+                          {formatEventDescription(event) && (
+                            <div className={styles.eventDesc}>{formatEventDescription(event)}</div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )
+                })()}
               </div>
             </>
           )}
