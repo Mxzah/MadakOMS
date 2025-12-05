@@ -41,6 +41,42 @@
   line-height: 1.3;
 }
 
+/* Sur ordinateur, cacher le logo et positionner le titre au-dessus de l'adresse */
+@media (min-width: 641px) {
+  .topRow {
+    grid-template-rows: auto auto; /* Deux lignes pour permettre titre + meta */
+    align-items: start; /* Aligner en haut */
+  }
+  
+  .logo {
+    display: none; /* Cacher le logo sur ordinateur */
+  }
+  
+  /* logoTitleRow doit être dans la colonne 2 (meta), ligne 1 */
+  .logoTitleRow {
+    grid-column: 2; /* Colonne 2 (meta) */
+    grid-row: 1; /* Première ligne */
+    display: block;
+  }
+  
+  .title {
+    margin: 0 0 10px 0; /* Espacement avec l'adresse en dessous */
+  }
+  
+  /* meta doit être dans la colonne 2 (meta), ligne 2 */
+  .meta {
+    grid-column: 2; /* Colonne 2 (meta) */
+    grid-row: 2; /* Deuxième ligne, en dessous du titre */
+  }
+  
+  /* actions doit rester dans la colonne 3, mais s'étendre sur les 2 lignes */
+  .actions {
+    grid-column: 3; /* Colonne 3 (actions) */
+    grid-row: 1 / 3; /* S'étendre sur les lignes 1 et 2 */
+    align-self: start; /* Aligner en haut */
+  }
+}
+
 .address {
   display: inline-flex;
   align-items: flex-start;
