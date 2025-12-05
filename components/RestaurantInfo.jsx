@@ -74,19 +74,26 @@ export default function RestaurantInfo({
   return (
     <section className={styles.wrapper}>
       <div className={styles.topRow}>
-        <div className={styles.logo} aria-hidden>
-          {initials}
+        <div className={styles.logoTitleRow}>
+          <div className={styles.logo} aria-hidden>
+            {initials}
+          </div>
+          <h2 className={styles.title}>{name}</h2>
         </div>
 
         <div className={styles.meta}>
-          <h2 className={styles.title}>{name}</h2>
-          <div className={styles.address}>
+          <a 
+            href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address)}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className={styles.address}
+          >
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
               <path d="M12 21s7-6.3 7-11a7 7 0 10-14 0c0 4.7 7 11 7 11z" stroke="#666" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
               <circle cx="12" cy="10" r="2.5" stroke="#666" strokeWidth="1.5"/>
             </svg>
             <span>{address}</span>
-          </div>
+          </a>
           {phone && (
             <div className={styles.contactInfo}>
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">

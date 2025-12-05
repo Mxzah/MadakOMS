@@ -167,7 +167,10 @@ export default function RestaurantPage() {
     if (sections.length === 0) return
     if (typeof window === 'undefined') return
 
-    const headerOffset = 120 // should match CSS scroll-margin-top intent
+    // On mobile: header (60px) + nav categories (~80px) = ~140px
+    // On desktop: header + side nav = ~120px
+    const isMobile = typeof window !== 'undefined' && window.innerWidth <= 640
+    const headerOffset = isMobile ? 140 : 120 // should match CSS scroll-margin-top intent
     const activationRadius = 40 // px distance from headerOffset within which a section becomes "active"
 
     const updateActive = () => {
@@ -215,34 +218,81 @@ export default function RestaurantPage() {
     const link = nav.querySelector(`a[data-cat-id="${activeCatId}"]`)
     if (!link) return
     const isMobile = typeof window !== 'undefined' && window.innerWidth <= 640
+    
+    const updateHighlighter = () => {
+      if (!nav || !hl || !activeCatId) return
+      const currentLink = nav.querySelector(`a[data-cat-id="${activeCatId}"]`)
+      if (!currentLink) return
+      
+      if (isMobile) {
+        // Use offsetLeft which is relative to the nav container
+        // This works correctly even when the nav is scrolled
+        const left = currentLink.offsetLeft
+        const width = currentLink.offsetWidth
+        
+        hl.style.transform = `translateX(${left}px)`
+        hl.style.width = `${width}px`
+        hl.style.height = '3px'
+      } else {
+        const top = currentLink.offsetTop
+        const height = currentLink.offsetHeight
+        hl.style.transform = `translateY(${top}px)`
+        hl.style.height = `${height}px`
+        hl.style.width = 'calc(100% - 16px)'
+      }
+    }
+    
     if (isMobile) {
-      // Move underline under the active tab
-      const left = link.offsetLeft
-      const width = link.offsetWidth
-      hl.style.transform = `translateX(${left}px)`
-      hl.style.width = `${width}px`
-      hl.style.height = '3px'
-
       // Auto-scroll the horizontal list so the active tab stays in view / roughly centered
       const navWidth = nav.clientWidth
       const linkWidth = link.offsetWidth
+      const linkLeft = link.offsetLeft
       const targetScrollLeft = Math.max(
         0,
-        link.offsetLeft - (navWidth - linkWidth) / 2
+        linkLeft - (navWidth - linkWidth) / 2
       )
+      
+      // Update highlighter immediately
+      updateHighlighter()
+      
+      // Scroll the nav container
       nav.scrollTo({
         left: targetScrollLeft,
         behavior: 'smooth',
       })
     } else {
-      const top = link.offsetTop
-      const height = link.offsetHeight
-      hl.style.transform = `translateY(${top}px)`
-      hl.style.height = `${height}px`
-      hl.style.width = 'calc(100% - 16px)'
+      updateHighlighter()
     }
     // width fills container padding by CSS; avoid per-link width to keep centered
   }, [activeCatId, sections.length])
+
+  // On mobile, keep highlighter in sync with nav scroll
+  useEffect(() => {
+    const nav = navListRef.current
+    const hl = highlightRef.current
+    if (!nav || !hl) return
+    const isMobile = typeof window !== 'undefined' && window.innerWidth <= 640
+    
+    if (!isMobile) return
+    
+    const updateHighlighterOnScroll = () => {
+      if (!nav || !hl || !activeCatId) return
+      const link = nav.querySelector(`a[data-cat-id="${activeCatId}"]`)
+      if (!link) return
+      
+      // Update highlighter position during scroll
+      const left = link.offsetLeft
+      const width = link.offsetWidth
+      hl.style.transform = `translateX(${left}px)`
+      hl.style.width = `${width}px`
+    }
+    
+    nav.addEventListener('scroll', updateHighlighterOnScroll, { passive: true })
+    
+    return () => {
+      nav.removeEventListener('scroll', updateHighlighterOnScroll)
+    }
+  }, [activeCatId])
 
   return (
     <div>

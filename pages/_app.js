@@ -10,7 +10,7 @@ export default function MyApp({ Component, pageProps }) {
   return (
     <ServiceProvider>
       <CartProvider>
-        <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh', width: '100%', maxWidth: '100%' }}>
           <Component {...pageProps} />
           <Footer />
         </div>
