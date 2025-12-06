@@ -142,5 +142,22 @@ export default function CheckoutMap({ polygons = [], restaurantLocation = null, 
     }
   }, [deliveryLocation, restaurantLocation])
 
+  // Centrer la carte sur le restaurant si pas de polygones ni d'adresse de livraison (mode cueillette)
+  useEffect(() => {
+    const map = mapInstance.current
+    if (!map) return
+    
+    // Si pas de polygones, pas d'adresse de livraison, mais un restaurant, centrer sur le restaurant
+    if ((!polygons || polygons.length === 0) && 
+        !deliveryLocation && 
+        restaurantLocation && 
+        typeof restaurantLocation.lat === 'number' && 
+        typeof restaurantLocation.lng === 'number' &&
+        Number.isFinite(restaurantLocation.lat) &&
+        Number.isFinite(restaurantLocation.lng)) {
+      map.setView([restaurantLocation.lat, restaurantLocation.lng], 14)
+    }
+  }, [polygons, deliveryLocation, restaurantLocation])
+
   return <div ref={mapRef} style={{ width: '100%', height: '100%', borderRadius: 12 }} aria-label="Zone de livraison" />
 }

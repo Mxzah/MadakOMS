@@ -34,6 +34,9 @@ function formatStripeElementError(errorMessage) {
   const message = errorMessage.toLowerCase()
   
   // Erreurs de numéro de carte
+  if (message.includes('card number is incomplete') || message.includes('your card number is incomplete')) {
+    return 'Le numéro de carte est incomplet. Veuillez compléter le numéro de carte.'
+  }
   if (message.includes('card number is invalid') || message.includes('your card number is invalid') || message.includes('invalid_number')) {
     return 'Le numéro de carte est invalide. Veuillez vérifier et réessayer.'
   }
@@ -42,6 +45,9 @@ function formatStripeElementError(errorMessage) {
   }
   
   // Erreurs de date d'expiration
+  if (message.includes('expiry is incomplete') || message.includes('your expiry is incomplete') || message.includes('expiration date is incomplete')) {
+    return 'La date d\'expiration est incomplète. Veuillez compléter la date d\'expiration.'
+  }
   if (message.includes('invalid_expiry') || message.includes('invalid_expiry_month') || message.includes('invalid_expiry_year')) {
     return 'La date d\'expiration est invalide. Veuillez vérifier et réessayer.'
   }
@@ -50,6 +56,9 @@ function formatStripeElementError(errorMessage) {
   }
   
   // Erreurs de CVC
+  if (message.includes('cvc is incomplete') || message.includes('cvv is incomplete') || message.includes('your cvc is incomplete') || message.includes('your cvv is incomplete')) {
+    return 'Le code de sécurité (CVC) est incomplet. Veuillez compléter le code de sécurité.'
+  }
   if (message.includes('invalid_cvc') || message.includes('invalid_cvv')) {
     return 'Le code de sécurité (CVC) est invalide. Veuillez vérifier et réessayer.'
   }

@@ -9,7 +9,7 @@ import { formatPrice } from '../../lib/currency'
 const DriverMap = dynamic(() => import('../../components/DriverMap'), { ssr: false })
 
 const DELIVERY_FLOW = ['received', 'preparing', 'ready', 'enroute', 'completed']
-const PICKUP_FLOW = ['received', 'preparing', 'ready', 'enroute', 'completed']
+const PICKUP_FLOW = ['preparing', 'ready', 'retrieved']
 
 function statusLabel(status, fulfillment) {
   switch (status) {
@@ -24,7 +24,9 @@ function statusLabel(status, fulfillment) {
     case 'enroute':
       return 'En route'
     case 'completed':
-      return 'Livrée'
+      return fulfillment === 'pickup' ? 'Récupéré' : 'Livrée'
+    case 'retrieved':
+      return 'Récupéré'
     case 'failed':
       return 'Échec'
     case 'cancelled':
@@ -166,7 +168,20 @@ export default function OrderTrackPage() {
     return base
   }, [order?.fulfillment, order?.status])
 
-  const timelineStatus = isFailed ? 'enroute' : normalizedStatus
+  const timelineStatus = useMemo(() => {
+    if (isFailed) return 'enroute'
+    // En mode pickup, mapper les statuts pour la timeline
+    if (order?.fulfillment === 'pickup') {
+      if (normalizedStatus === 'completed') {
+        return 'retrieved'
+      }
+      // Si le statut est 'received' en mode pickup, on le mappe à 'preparing' car 'received' n'est pas dans le flow
+      if (normalizedStatus === 'received') {
+        return 'preparing'
+      }
+    }
+    return normalizedStatus
+  }, [isFailed, normalizedStatus, order?.fulfillment])
 
   const currentIdx = useMemo(() => {
     if (!timelineStatus) return 0
@@ -183,9 +198,9 @@ export default function OrderTrackPage() {
     return formatAddress(order.delivery_address)
   }, [order])
   const scheduledLabel = useMemo(() => {
-    if (!order) return '—'
-    if (order.fulfillment === 'pickup') return 'N/A'
-    if (!order.scheduled_at) return 'Dès que possible'
+    if (!order) return null
+    if (order.fulfillment === 'pickup') return null
+    if (!order.scheduled_at) return null
     return formatDateTime(order.scheduled_at)
   }, [order])
 
@@ -272,7 +287,7 @@ export default function OrderTrackPage() {
 
   return (
     <div>
-      <Header name="Suivi de commande" showCart={false} />
+      <Header name="Détails de la commande" showCart={false} />
       <main className={styles.wrapper}>
         <section className={styles.left}>
           <h2 className={styles.title}>Commande {orderNumberLabel || id || ''}</h2>
@@ -317,7 +332,7 @@ export default function OrderTrackPage() {
                 })}
               </div>
 
-              {order?.driver_id && !['cancelled', 'failed', 'completed'].includes(order.status) && (
+              {order?.driver_id && order?.fulfillment === 'delivery' && !['cancelled', 'failed', 'completed'].includes(order.status) && (
                 <div className={styles.driverSection}>
                   <div className={styles.driverSectionHeader}>
                     <div>
@@ -336,7 +351,7 @@ export default function OrderTrackPage() {
                     {driverPosition ? (
                       <DriverMap driverPosition={driverPosition} destinationPosition={destinationPosition} />
                     ) : (
-                      <div className={styles.driverMapEmpty}>Le livreur n’a pas encore partagé sa position.</div>
+                      <div className={styles.driverMapEmpty}>Le livreur n'a pas encore partagé sa position.</div>
                     )}
                   </div>
                 </div>
@@ -357,18 +372,24 @@ export default function OrderTrackPage() {
                   <span>Commandée le</span>
                   <strong>{formatDateTime(order.placed_at)}</strong>
                 </div>
-                <div className={styles.metaItem}>
-                  <span>Fenêtre prévue</span>
-                  <strong>{scheduledLabel}</strong>
-                </div>
-                <div className={styles.metaItem}>
-                  <span>Adresse / retrait</span>
-                  <strong>{deliveryLine}</strong>
-                </div>
-                <div className={styles.metaItem}>
-                  <span>Instructions</span>
-                  <strong>{order.delivery_address?.instructions || '—'}</strong>
-                </div>
+                {scheduledLabel && (
+                  <div className={styles.metaItem}>
+                    <span>Fenêtre prévue</span>
+                    <strong>{scheduledLabel}</strong>
+                  </div>
+                )}
+                {deliveryLine && deliveryLine !== '—' && (
+                  <div className={styles.metaItem}>
+                    <span>Adresse / retrait</span>
+                    <strong>{deliveryLine}</strong>
+                  </div>
+                )}
+                {order.delivery_address?.instructions && (
+                  <div className={styles.metaItem}>
+                    <span>Instructions</span>
+                    <strong>{order.delivery_address.instructions}</strong>
+                  </div>
+                )}
               </div>
 
               <div className={styles.eventsSection}>
@@ -422,8 +443,12 @@ export default function OrderTrackPage() {
                 <div className={styles.cardTitle}>Détails</div>
                 <div className={styles.row}><span>Service</span><strong>{serviceLabel}</strong></div>
                 <div className={styles.row}><span>Paiement</span><strong>{paymentLabel}</strong></div>
-                <div className={styles.row}><span>Client</span><strong>{order.pickup_name || order.delivery_name || order.delivery_address?.address || '—'}</strong></div>
-                <div className={styles.row}><span>Téléphone</span><strong>{order.pickup_phone || order.customer?.phone || '—'}</strong></div>
+                {(order.pickup_name || order.delivery_name || order.delivery_address?.address) && (
+                  <div className={styles.row}><span>Client</span><strong>{order.pickup_name || order.delivery_name || order.delivery_address?.address}</strong></div>
+                )}
+                {(order.pickup_phone || order.customer?.phone) && (
+                  <div className={styles.row}><span>Téléphone</span><strong>{order.pickup_phone || order.customer?.phone}</strong></div>
+                )}
                 <div className={styles.row}><span>Total</span><strong>{formatPrice(order.total)}</strong></div>
               </div>
 
@@ -515,6 +540,9 @@ function formatEventTitle(event, fulfillment) {
     }
     if (event.payload.status === 'enroute') {
       return 'Le livreur se dirige vers vous'
+    }
+    if (event.payload.status === 'ready') {
+      return fulfillment === 'pickup' ? 'Prête pour la cueillette' : 'Prête'
     }
     return statusLabel(event.payload.status, fulfillment)
   }

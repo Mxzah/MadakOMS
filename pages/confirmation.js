@@ -34,15 +34,68 @@ export default function ConfirmationPage() {
   }, [order])
 
   const payLabel = useMemo(() => {
-    if (!order?.payment) return '—'
-    if (order.payment.mode === 'card_now') {
-      const brand = order.payment.cardBrand === 'visa' ? 'Visa' : order.payment.cardBrand === 'mastercard' ? 'Mastercard' : 'Carte'
-      return `${brand} · · · · ${order.payment.last4 || ''}`
+    // Vérifier dans order.payment d'abord, puis dans order.backendOrder.payment
+    const payment = order?.payment || order?.backendOrder?.payment || null
+    
+    // Debug: log pour voir la structure
+    if (process.env.NODE_ENV === 'development' && order) {
+      console.log('Order payment data:', { payment: order.payment, backendPayment: order.backendOrder?.payment, fullOrder: order })
     }
-    if (order.payment.mode === 'cod') {
-      return order.service === 'pickup' ? 'Paiement sur place' : (order.payment.method === 'cash' ? 'Espèces (à la livraison)' : 'Carte (à la livraison)')
+    
+    if (!payment) {
+      // Si pas de payment, vérifier si on peut déduire du backendOrder
+      const backendOrder = order?.backendOrder
+      if (backendOrder?.payment_mode) {
+        const mode = backendOrder.payment_mode
+        if (mode === 'card_online' || mode === 'card_now') {
+          return 'Carte en ligne'
+        }
+        if (mode === 'cod') {
+          const service = order?.service || backendOrder?.fulfillment || 'delivery'
+          return service === 'pickup' ? 'Paiement sur place' : 'Paiement à la livraison'
+        }
+        if (mode === 'pay_in_store') {
+          return 'Paiement sur place'
+        }
+      }
+      return '—'
     }
-    if (order.payment.mode === 'pay_in_store') return 'Paiement sur place'
+    
+    const mode = payment.mode || payment.payment_mode || null
+    if (!mode) {
+      // Si pas de mode mais qu'on a des infos de carte, c'est probablement card_now
+      if (payment.cardBrand || payment.last4 || payment.hasCard) {
+        const brand = payment.cardBrand === 'visa' ? 'Visa' : payment.cardBrand === 'mastercard' ? 'Mastercard' : 'Carte'
+        const last4 = payment.last4 || payment.last_4 || ''
+        return last4 ? `${brand} · · · · ${last4}` : `${brand}`
+      }
+      return '—'
+    }
+    
+    if (mode === 'card_now' || mode === 'card_online') {
+      const brand = payment.cardBrand === 'visa' ? 'Visa' : payment.cardBrand === 'mastercard' ? 'Mastercard' : 'Carte'
+      const last4 = payment.last4 || payment.last_4 || ''
+      return last4 ? `${brand} · · · · ${last4}` : `${brand}`
+    }
+    
+    if (mode === 'cod') {
+      const method = payment.method || payment.payment_method || 'cash'
+      const service = order?.service || order?.backendOrder?.fulfillment || 'delivery'
+      if (service === 'pickup') {
+        return 'Paiement sur place'
+      }
+      return method === 'cash' ? 'Espèces (à la livraison)' : 'Carte (à la livraison)'
+    }
+    
+    if (mode === 'pay_in_store' || mode === 'pay_in_restaurant') {
+      return 'Paiement sur place'
+    }
+    
+    // Fallback pour d'autres modes
+    if (typeof mode === 'string') {
+      return mode.charAt(0).toUpperCase() + mode.slice(1).replace(/_/g, ' ')
+    }
+    
     return '—'
   }, [order])
 
@@ -67,7 +120,7 @@ export default function ConfirmationPage() {
 
   return (
     <div>
-      <Header name="Bon repas!" showCart={false} />
+      <Header name="Confirmation de commande" showCart={false} />
       <main className={styles.wrapper}>
         <section className={styles.left}>
           <h2 className={styles.thankYou}>Merci pour votre commande!</h2>

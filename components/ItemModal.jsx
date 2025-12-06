@@ -11,6 +11,7 @@ export default function ItemModal({
   defaultQty = 1,
   confirmLabel,
   allowZeroQty = false,
+  minOrderError = '',
 }) {
   const basePrice = useMemo(() => item?.price ?? item?.base_price ?? 0, [item])
   const title = item?.title ?? item?.name ?? ''
@@ -139,6 +140,14 @@ export default function ItemModal({
       <div className={styles.modal} role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
         <button className={styles.closeBtn} onClick={onClose} aria-label="Fermer">×</button>
 
+        {minOrderError && (
+          <div className={styles.minOrderError}>
+            <svg className={styles.minOrderErrorIcon} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+              <path d="M12 9V13M12 17H12.01M21 12C21 16.9706 16.9706 21 12 21C7.02944 21 3 16.9706 3 12C3 7.02944 7.02944 3 12 3C16.9706 3 21 7.02944 21 12Z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+            <div className={styles.minOrderErrorText}>{minOrderError}</div>
+          </div>
+        )}
         <div className={styles.layout}>
           <aside className={styles.mediaColumn}>
             <div className={styles.mediaCard}>

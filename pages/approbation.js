@@ -260,8 +260,8 @@ export default function ApprovalPage() {
     ? 'Votre commande a été annulée.'
     : 'Nous attendons l’approbation du restaurant.'
   const subtitleText = isCancelled
-    ? 'L’annulation est maintenant confirmée. Vous pouvez consulter ci-dessous le message transmis par notre équipe.'
-    : `Votre commande a bien été transmise${orderNumberLabel ? ` (#${orderNumberLabel})` : ''}. Dès qu’elle passe en préparation, nous vous redirigerons vers le récapitulatif complet.`
+    ? 'L\'annulation est maintenant confirmée. Si vous avez payé en ligne, vous serez remboursé automatiquement. Vous pouvez consulter ci-dessous le message transmis par notre équipe.'
+    : `Votre commande a bien été transmise${orderNumberLabel ? ` (#${orderNumberLabel})` : ''}. Dès qu'elle passe en préparation, nous vous redirigerons vers le récapitulatif complet.`
   const infoText = isCancelled
     ? 'Cette page reste disponible afin que vous puissiez consulter les détails de l’annulation.'
     : `Votre commande a bien été reçue le ${placedLabel}. Nous vérifions automatiquement l’état de votre commande pour vous.`
@@ -274,18 +274,6 @@ export default function ApprovalPage() {
       <Header name="Commande en attente" showCart={false} />
       <main className={styles.wrapper}>
         <div className={styles.card}>
-          {isCancelled && (
-            <div className={styles.cancelBanner} role="alert">
-              <div className={styles.cancelTitle}>Commande annulée</div>
-              <div className={styles.cancelMessage}>
-                {failureReason
-                  ? failureReason
-                  : cancellationReason
-                  ? `Message de notre équipe : ${cancellationReason}`
-                  : "Cette commande a été annulée par l'équipe du restaurant."}
-              </div>
-            </div>
-          )}
           <div className={`${styles.statusBadge} ${isCancelled ? styles.statusBadgeDanger : ''}`.trim()}>
             <span className={`${styles.statusDot} ${isCancelled ? styles.statusDotDanger : ''}`.trim()} aria-hidden />
             {isCancelled ? 'Commande annulée' : 'Commande reçue'}
@@ -295,10 +283,23 @@ export default function ApprovalPage() {
 
           {error && <div className={styles.error}>{error}</div>}
 
-          <div className={styles.timerBlock}>
-            <div className={styles.timerLabel}>Temps écoulé depuis la commande</div>
-            <div className={styles.timerValue}>{elapsedLabel}</div>
-          </div>
+          {isCancelled ? (
+            <div className={styles.cancelMessageBlock}>
+              <div className={styles.cancelMessageLabel}>Message de notre équipe</div>
+              <div className={styles.cancelMessageContent}>
+                {failureReason
+                  ? failureReason
+                  : cancellationReason
+                  ? cancellationReason
+                  : "Cette commande a été annulée par l'équipe du restaurant."}
+              </div>
+            </div>
+          ) : (
+            <div className={styles.timerBlock}>
+              <div className={styles.timerLabel}>Temps écoulé depuis la commande</div>
+              <div className={styles.timerValue}>{elapsedLabel}</div>
+            </div>
+          )}
 
           <p className={styles.infoText}>{infoText}</p>
 

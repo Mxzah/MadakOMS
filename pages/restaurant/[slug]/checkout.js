@@ -74,6 +74,17 @@ function formatStripeError(errorMessage) {
     return 'Votre carte a expiré. Veuillez utiliser une autre carte.'
   }
   
+  // Erreurs de données incomplètes
+  if (message.includes('card number is incomplete') || message.includes('your card number is incomplete')) {
+    return 'Le numéro de carte est incomplet. Veuillez compléter le numéro de carte.'
+  }
+  if (message.includes('expiry is incomplete') || message.includes('your expiry is incomplete') || message.includes('expiration date is incomplete')) {
+    return 'La date d\'expiration est incomplète. Veuillez compléter la date d\'expiration.'
+  }
+  if (message.includes('cvc is incomplete') || message.includes('cvv is incomplete') || message.includes('your cvc is incomplete') || message.includes('your cvv is incomplete')) {
+    return 'Le code de sécurité (CVC) est incomplet. Veuillez compléter le code de sécurité.'
+  }
+  
   // Erreurs de données invalides
   if (message.includes('incorrect_cvc') || message.includes('incorrect_cvv')) {
     return 'Le code de sécurité (CVC) est incorrect. Veuillez vérifier et réessayer.'
@@ -621,7 +632,9 @@ export default function CheckoutPage() {
         restaurantSlug: activeSlug,
         timestamp: payload.placedAt || baseOrder.timestamp,
         // Stocker les informations de paiement Stripe pour confirmation ultérieure
+        // Préserver toutes les informations de paiement existantes et ajouter les IDs Stripe
         payment: paymentMode === 'now' && stripePaymentIntentId ? {
+          ...baseOrder.payment, // Préserver mode, cardBrand, last4, etc.
           stripePaymentIntentId,
           stripePaymentMethodId,
         } : baseOrder.payment,
@@ -948,7 +961,12 @@ export default function CheckoutPage() {
 
   // Autocomplete: query Photon API
   useEffect(() => {
-    if (!addrOpen) return
+    // Rechercher seulement si la modale est ouverte
+    if (!showAddressModal) {
+      setAddrResults([])
+      setAddrLoading(false)
+      return
+    }
     if (debounceRef.current) clearTimeout(debounceRef.current)
     if (!addressDraft || addressDraft.trim().length < 3) {
       setAddrResults([])
@@ -969,8 +987,9 @@ export default function CheckoutPage() {
           }
         }, 10000)
         
-        const url = `https://photon.komoot.io/api/?q=${encodeURIComponent(addressDraft)}&lang=fr&limit=5`
-        const res = await fetch(url, { 
+        const query = addressDraft.trim()
+        console.log('[Address Search] Searching for:', query)
+        const res = await fetch(`/api/geocode/search-address?q=${encodeURIComponent(query)}`, { 
           signal: addrAbort.current.signal,
           headers: {
             'Accept': 'application/json',
@@ -984,7 +1003,8 @@ export default function CheckoutPage() {
         }
         
         if (!res.ok) {
-          throw new Error(`API error: ${res.status} ${res.statusText}`)
+          const errorData = await res.json().catch(() => ({}))
+          throw new Error(errorData.message || `API error: ${res.status} ${res.statusText}`)
         }
         
         const json = await res.json()
@@ -994,15 +1014,8 @@ export default function CheckoutPage() {
           return
         }
         
-        const items = (json.features || []).map(f => {
-          const [lng, lat] = f.geometry.coordinates
-          const p = f.properties || {}
-          const parts = [p.name, p.housenumber, p.street].filter(Boolean)
-          const city = [p.city || p.town || p.village, p.state].filter(Boolean).join(', ')
-          const country = p.country
-          const label = [parts.join(' '), city, country].filter(Boolean).join(', ')
-          return { label, lat, lng }
-        })
+        const items = json.results || []
+        console.log('[Address Search] Found', items.length, 'results:', items)
         setAddrResults(items)
       } catch (e) {
         // Clear timeout on error
@@ -1028,7 +1041,7 @@ export default function CheckoutPage() {
       if (debounceRef.current) clearTimeout(debounceRef.current)
       if (addrAbort.current) addrAbort.current.abort()
     }
-  }, [addressDraft, addrOpen])
+  }, [addressDraft, showAddressModal])
 
   // Dynamic section indices depending on service
   const idxShipping = 2
@@ -1053,7 +1066,7 @@ export default function CheckoutPage() {
   return (
     <div>
       <Header name="Vérifier votre commande" showCart={false} onBack={() => router.back()} />
-      <main className={styles.wrapper}>
+      <main className={`${styles.wrapper} ${service === 'pickup' ? styles.pickupMode : ''}`}>
         <div className={styles.left}>
         {settingsError && (
           <div className={styles.settingsAlert} role="alert">{settingsError}</div>
@@ -1473,6 +1486,13 @@ export default function CheckoutPage() {
               <div className={styles.sumRowTotal}><span>Total</span><strong>{formatPrice(total)}</strong></div>
             </div>
 
+            {/* Carte sur mobile en mode cueillette */}
+            {service === 'pickup' && (
+              <div className={styles.mobileMapContainer}>
+                <CheckoutMap polygons={[]} restaurantLocation={restaurantLocation} deliveryLocation={null} />
+              </div>
+            )}
+
             <div className={styles.actions}>
               <button type="button" className={styles.secondary} onClick={() => router.back()}>Retour au menu</button>
               <button
@@ -1490,9 +1510,10 @@ export default function CheckoutPage() {
             )}
           </section>
         )}
+
         </div>
-        <aside className={styles.right}>
-          <CheckoutMap polygons={deliveryPolygons} restaurantLocation={restaurantLocation} deliveryLocation={deliveryLocation} />
+        <aside className={`${styles.right} ${service === 'pickup' ? styles.pickupAside : ''}`}>
+          <CheckoutMap polygons={service === 'pickup' ? [] : deliveryPolygons} restaurantLocation={restaurantLocation} deliveryLocation={deliveryLocation} />
         </aside>
       </main>
       {showAddressModal && (
@@ -1538,14 +1559,14 @@ export default function CheckoutPage() {
               }
               handleCloseAddressModal(chosenLabel)
             }}>
-              <div className={styles.deliveryField} style={{ position:'relative' }}>
+              <div className={styles.deliveryField}>
                 <label>Adresse</label>
                 <input
                   type="text"
                   autoComplete="street-address"
                   value={addressDraft}
                   onFocus={() => setAddrOpen(true)}
-                  onBlur={() => setTimeout(() => setAddrOpen(false), 150)}
+                  onBlur={() => setTimeout(() => setAddrOpen(false), 200)}
                   onKeyDown={(e) => {
                     // Intercepter Enter pour vérifier qu'une suggestion a été sélectionnée
                     if (e.key === 'Enter') {
@@ -1573,16 +1594,25 @@ export default function CheckoutPage() {
                   }}
                   placeholder="Numéro et rue, ville"
                 />
-                {(addrOpen && (addrLoading || addrResults.length > 0)) && (
+                {addrSelectionError && <div className={styles.fieldError}>{addrSelectionError}</div>}
+                {addrOpen && (
                   <div className={styles.acWrap}>
-                    {addrLoading && <div className={styles.acItem}>Recherche…</div>}
-                    {!addrLoading && addrResults.map((r, idx) => (
+                    {addrLoading && <div className={styles.acItem}>🔍 Recherche en cours…</div>}
+                    {!addrLoading && addrResults.length > 0 && addrResults.map((r, idx) => (
                       <button
                         key={idx}
                         type="button"
                         className={styles.acItem}
-                        onMouseDown={(e) => e.preventDefault()}
-                        onClick={() => {
+                        onMouseDown={(e) => {
+                          e.preventDefault()
+                          setAddressDraft(r.label)
+                          setAddressLat(r.lat)
+                          setAddressLng(r.lng)
+                          setAddrOpen(false)
+                          setAddrSelectionError('')
+                        }}
+                        onClick={(e) => {
+                          e.preventDefault()
                           setAddressDraft(r.label)
                           setAddressLat(r.lat)
                           setAddressLng(r.lng)
@@ -1590,15 +1620,17 @@ export default function CheckoutPage() {
                           setAddrSelectionError('')
                         }}
                       >
-                        {r.label}
+                        📍 {r.label}
                       </button>
                     ))}
                     {!addrLoading && addrResults.length === 0 && addressDraft.trim().length >= 3 && (
-                      <div className={styles.acItemMuted}>Aucun résultat</div>
+                      <div className={styles.acItemMuted}>
+                        <span style={{ display: 'block', marginBottom: '4px' }}>🔍</span>
+                        Aucun résultat trouvé pour "{addressDraft}"
+                      </div>
                     )}
                   </div>
                 )}
-                {addrSelectionError && <div className={styles.fieldError}>{addrSelectionError}</div>}
               </div>
               <div className={styles.deliveryActions}>
                 <button type="button" className={styles.cancelBtn} onClick={handleCloseAddressModal}>Annuler</button>
@@ -1745,6 +1777,7 @@ export default function CheckoutPage() {
       {showScheduleModal && (
         <div className={styles.deliveryBackdrop} onClick={() => setShowScheduleModal(false)}>
           <div className={styles.scheduleModal} role="dialog" aria-modal="true" onClick={(e)=>e.stopPropagation()}>
+            <button type="button" className={styles.modalClose} aria-label="Fermer" onClick={() => { setShowScheduleModal(false); if(!scheduleSlot) { setDeliveryMode('standard') } }}>×</button>
             <div className={styles.scheduleHeader}>Planifier votre commande</div>
             <div className={styles.scheduleSub}>Choisissez une fenêtre disponible pour votre commande</div>
             <div className={styles.dayTabs}>
@@ -1763,7 +1796,7 @@ export default function CheckoutPage() {
             <div className={styles.slotList}>
               {currentSlots.length === 0 && <div className={styles.slotEmpty}>Aucun créneau disponible</div>}
               {currentSlots.map((slot, idx)=>(
-                <label key={idx} className={styles.slotItem}>
+                <label key={idx} className={`${styles.slotItem} ${scheduleSlot && scheduleSlot.start.getTime()===slot.start.getTime() ? styles.slotItemSelected : ''}`}>
                   <input
                     type="radio"
                     name="scheduleSlot"
@@ -1836,13 +1869,53 @@ export default function CheckoutPage() {
           defaultQty={lines[editIndex].qty}
           confirmLabel="Mettre à jour"
           allowZeroQty
-          onClose={() => setEditIndex(null)}
+          minOrderError={orderError}
+          onClose={() => {
+            setEditIndex(null)
+            setOrderError('')
+          }}
           onConfirm={({ itemId, qty, unitPrice, selections, selectionLabels, groupLabels }) => {
+            // Calculer le nouveau subtotal après modification
+            const currentItemTotal = lines[editIndex]?.total || 0
+            const newItemTotal = qty * unitPrice
+            const newSubtotal = subtotal - currentItemTotal + newItemTotal
+            
+            // Valider le montant minimum si l'item est modifié (quantité > 0)
+            if (qty > 0) {
+              const minOrderAmount = service === 'delivery' 
+                ? (restaurantSettings?.min_order_amount_delivery ?? null)
+                : (restaurantSettings?.min_order_amount_pickup ?? null)
+              
+              if (minOrderAmount != null && Number.isFinite(Number(minOrderAmount)) && newSubtotal < Number(minOrderAmount)) {
+                const serviceLabel = service === 'delivery' ? 'livraison' : 'cueillette'
+                setOrderError(`Le montant minimum pour la ${serviceLabel} est de ${formatPrice(Number(minOrderAmount))}. Après modification, votre commande serait de ${formatPrice(newSubtotal)}.`)
+                // Ne pas fermer le modal, laisser l'utilisateur corriger
+                return
+              }
+            }
+            
+            // Si tout est OK, procéder à la modification
             if (qty === 0) {
+              // Vérifier aussi le montant minimum avant de supprimer
+              const minOrderAmount = service === 'delivery' 
+                ? (restaurantSettings?.min_order_amount_delivery ?? null)
+                : (restaurantSettings?.min_order_amount_pickup ?? null)
+              
+              const newSubtotalAfterRemove = subtotal - currentItemTotal
+              
+              if (minOrderAmount != null && Number.isFinite(Number(minOrderAmount)) && newSubtotalAfterRemove < Number(minOrderAmount)) {
+                const serviceLabel = service === 'delivery' ? 'livraison' : 'cueillette'
+                setOrderError(`Le montant minimum pour la ${serviceLabel} est de ${formatPrice(Number(minOrderAmount))}. Vous ne pouvez pas supprimer cet article car cela ferait descendre votre commande à ${formatPrice(newSubtotalAfterRemove)}.`)
+                return
+              }
+              
               removeAt(editIndex)
             } else {
               updateAt(editIndex, { itemId, qty, unitPrice, selections, selectionLabels, groupLabels, item: lines[editIndex].item })
             }
+            
+            // Réinitialiser l'erreur si la modification réussit
+            setOrderError('')
             setEditIndex(null)
           }}
         />
