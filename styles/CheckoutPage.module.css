@@ -301,11 +301,15 @@
 @media (max-width:640px){
   .row2{grid-template-columns:1fr;align-items:stretch}
   .row2 .field{display:flex;flex-direction:column;align-items:stretch}
+  .deliveryAsideMobile{
+    display:none;
+  }
   .mobileMapContainer{
     display:block;
   }
-  /* Masquer l'aside sur mobile en mode cueillette - la carte est dans la section "Votre commande" */
-  .pickupMode .pickupAside{
+  /* Masquer l'aside sur mobile en mode cueillette ou livraison - la carte est dans la section "Votre commande" */
+  .pickupMode .pickupAside,
+  .deliveryAsideMobile{
     display:none;
   }
 }

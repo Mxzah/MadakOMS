@@ -1486,10 +1486,14 @@ export default function CheckoutPage() {
               <div className={styles.sumRowTotal}><span>Total</span><strong>{formatPrice(total)}</strong></div>
             </div>
 
-            {/* Carte sur mobile en mode cueillette */}
-            {service === 'pickup' && (
+            {/* Carte sur mobile en mode cueillette ou livraison */}
+            {(service === 'pickup' || service === 'delivery') && (
               <div className={styles.mobileMapContainer}>
-                <CheckoutMap polygons={[]} restaurantLocation={restaurantLocation} deliveryLocation={null} />
+                <CheckoutMap 
+                  polygons={service === 'pickup' ? [] : deliveryPolygons} 
+                  restaurantLocation={restaurantLocation} 
+                  deliveryLocation={service === 'pickup' ? null : deliveryLocation} 
+                />
               </div>
             )}
 
@@ -1512,7 +1516,7 @@ export default function CheckoutPage() {
         )}
 
         </div>
-        <aside className={`${styles.right} ${service === 'pickup' ? styles.pickupAside : ''}`}>
+        <aside className={`${styles.right} ${service === 'pickup' ? styles.pickupAside : ''} ${service === 'delivery' ? styles.deliveryAsideMobile : ''}`}>
           <CheckoutMap polygons={service === 'pickup' ? [] : deliveryPolygons} restaurantLocation={restaurantLocation} deliveryLocation={deliveryLocation} />
         </aside>
       </main>

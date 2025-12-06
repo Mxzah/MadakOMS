@@ -95,9 +95,12 @@ export default function CartDrawer() {
     // If cart is empty or no settings, don't block
     if (lines.length === 0 || !restaurantSettings) {
       // Only clear specific blocks, not others
-      if (checkoutBlock?.reason === 'min_order_amount' || checkoutBlock?.reason === 'restaurant_closed') {
-        setCheckoutBlock(null)
-      }
+      setCheckoutBlock((prev) => {
+        if (prev?.reason === 'min_order_amount' || prev?.reason === 'restaurant_closed') {
+          return null
+        }
+        return prev
+      })
       return
     }
 
@@ -108,9 +111,13 @@ export default function CartDrawer() {
     const isClosed = orderingDisabled || closedBySchedule
 
     if (isClosed) {
-      setCheckoutBlock({
-        reason: 'restaurant_closed',
-        message: 'Ce restaurant est actuellement fermé. Revenez plus tard pour passer votre commande.',
+      setCheckoutBlock((prev) => {
+        // Only update if not already set to avoid unnecessary re-renders
+        if (prev?.reason === 'restaurant_closed') return prev
+        return {
+          reason: 'restaurant_closed',
+          message: 'Ce restaurant est actuellement fermé. Revenez plus tard pour passer votre commande.',
+        }
       })
       return
     }
@@ -122,17 +129,24 @@ export default function CartDrawer() {
     
     if (minOrderAmount != null && Number.isFinite(Number(minOrderAmount)) && subtotal < Number(minOrderAmount)) {
       const serviceLabel = service === 'delivery' ? 'livraison' : 'cueillette'
-      setCheckoutBlock({
-        reason: 'min_order_amount',
-        message: `Le montant minimum pour la ${serviceLabel} est de ${formatPrice(Number(minOrderAmount))}. Votre commande est de ${formatPrice(subtotal)}.`,
+      setCheckoutBlock((prev) => {
+        // Only update if not already set to avoid unnecessary re-renders
+        if (prev?.reason === 'min_order_amount' && prev?.message?.includes(serviceLabel)) return prev
+        return {
+          reason: 'min_order_amount',
+          message: `Le montant minimum pour la ${serviceLabel} est de ${formatPrice(Number(minOrderAmount))}. Votre commande est de ${formatPrice(subtotal)}.`,
+        }
       })
     } else {
       // Only clear the min order block, not other blocks
-      if (checkoutBlock?.reason === 'min_order_amount') {
-        setCheckoutBlock(null)
-      }
+      setCheckoutBlock((prev) => {
+        if (prev?.reason === 'min_order_amount') {
+          return null
+        }
+        return prev
+      })
     }
-  }, [subtotal, service, restaurantSettings, lines.length, setCheckoutBlock, checkoutBlock])
+  }, [subtotal, service, restaurantSettings, lines.length, setCheckoutBlock])
 
   if (!isOpen) return null
 
