@@ -424,6 +424,12 @@ export default function CheckoutPage() {
       return
     }
     // Validate payment options
+    // If dropOption is 'door', payment must be online
+    if (service === 'delivery' && dropOption === 'door' && paymentMode !== 'now') {
+      setPaymentError('Le paiement en ligne est obligatoire pour "Laisser à la porte".')
+      setOpenSection(service === 'pickup' ? 2 : 3)
+      return
+    }
     if (paymentMode === 'now') {
       if (!availablePaymentOptions.card_online) {
         setPaymentError('Le paiement en ligne n\'est pas disponible pour ce type de commande.')
@@ -871,8 +877,18 @@ export default function CheckoutPage() {
     if (!paymentOptionsByService) return
     const options = availablePaymentOptions
 
-    // If 'now' (card_online) is not available, switch to 'cod'
-    if (paymentMode === 'now' && !options.card_online) {
+    // If dropOption is 'door' (Laisser à la porte), force payment to 'now' (online)
+    if (service === 'delivery' && dropOption === 'door' && paymentMode === 'cod') {
+      if (options.card_online) {
+        setPaymentMode('now')
+        setPaymentError('')
+      } else {
+        setPaymentError('Le paiement en ligne est obligatoire pour "Laisser à la porte". Veuillez activer le paiement en ligne dans les paramètres du restaurant.')
+      }
+    }
+
+    // If 'now' (card_online) is not available, switch to 'cod' (unless dropOption is 'door')
+    if (paymentMode === 'now' && !options.card_online && !(service === 'delivery' && dropOption === 'door')) {
       setPaymentMode('cod')
     }
 
@@ -889,7 +905,7 @@ export default function CheckoutPage() {
         setPaymentMode('now')
       }
     }
-  }, [availablePaymentOptions, paymentMode, codMethod, paymentOptionsByService])
+  }, [availablePaymentOptions, paymentMode, codMethod, paymentOptionsByService, dropOption, service])
 
   const handleBackToHome = () => {
     router.push('/').catch(() => {})
@@ -1239,6 +1255,7 @@ export default function CheckoutPage() {
               {/* Phone row removed as requested */}
 
               <div className={styles.sectionFooter}>
+                <button type="button" className={styles.backBtn} onClick={() => setOpenSection(1)}>Retour</button>
                 <button type="button" className={styles.nextBtn} onClick={() => { if (validateSection2()) setOpenSection(3) }}>Suivant</button>
               </div>
             </>
@@ -1258,11 +1275,23 @@ export default function CheckoutPage() {
                   <button type="button" className={`${styles.segBtn} ${paymentMode==='now' ? styles.segBtnActive : ''}`} onClick={()=>{ setPaymentMode('now'); setPaymentError('') }}>Payer maintenant</button>
                 )}
                 {(availablePaymentOptions.card_terminal || availablePaymentOptions.cash) && (
-                  <button type="button" className={`${styles.segBtn} ${paymentMode==='cod' ? styles.segBtnActive : ''}`} onClick={()=>{ setPaymentMode('cod'); setPaymentError('') }}>
+                  <button 
+                    type="button" 
+                    className={`${styles.segBtn} ${paymentMode==='cod' ? styles.segBtnActive : ''}`} 
+                    onClick={()=>{ setPaymentMode('cod'); setPaymentError('') }}
+                    disabled={service === 'delivery' && dropOption === 'door'}
+                    aria-disabled={service === 'delivery' && dropOption === 'door'}
+                    title={service === 'delivery' && dropOption === 'door' ? 'Le paiement en ligne est obligatoire pour "Laisser à la porte"' : ''}
+                  >
                     {service === 'pickup' ? 'Payer sur place' : 'Payer à la livraison'}
                   </button>
                 )}
               </div>
+              {service === 'delivery' && dropOption === 'door' && (
+                <div style={{marginTop: 12, padding: 12, background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 10, fontSize: 14, color: '#1e40af', lineHeight: 1.5}}>
+                  <strong>Paiement en ligne obligatoire</strong> : Le paiement en ligne est requis lorsque vous choisissez "Laisser à la porte".
+                </div>
+              )}
 
               {paymentMode === 'now' && (stripeCardElement || hasCard) && (
                 <div className={styles.rowItem} style={{borderTop:'none',paddingTop:12,marginTop:4}}>
@@ -1360,6 +1389,13 @@ export default function CheckoutPage() {
                 </div>
               )}
               <div className={styles.sectionFooter}>
+                <button 
+                  type="button" 
+                  className={styles.backBtn} 
+                  onClick={() => setOpenSection(service === 'pickup' ? 1 : 2)}
+                >
+                  Retour
+                </button>
                 <button
                   type="button"
                   className={styles.nextBtn}
