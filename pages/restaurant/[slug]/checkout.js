@@ -143,7 +143,7 @@ export default function CheckoutPage() {
   const [addressDraft, setAddressDraft] = useState('')
   const [instructions, setInstructions] = useState('')
   const [apartmentSuite, setApartmentSuite] = useState('')
-  const [dropOption, setDropOption] = useState('door') // 'hand' | 'door'
+  const [dropOption, setDropOption] = useState('hand') // 'hand' | 'door'
   const [showDeliveryModal, setShowDeliveryModal] = useState(false)
   const [showAddressModal, setShowAddressModal] = useState(false)
   const [addressLat, setAddressLat] = useState(null)

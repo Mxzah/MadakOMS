@@ -132,7 +132,9 @@ export default function ConfirmationPage() {
               <div className={styles.infoRow}><span>Nom</span><strong>{order?.customer?.firstName || '—'}</strong></div>
               <div className={styles.infoRow}><span>Adresse</span><strong>{addressLine}</strong></div>
               <div className={styles.infoRow}><span>Téléphone</span><strong>{order?.customer?.phone || '—'}</strong></div>
-              <div className={styles.infoRow}><span>Courriel</span><strong>{order?.customer?.email || '—'}</strong></div>
+              {order?.customer?.email && (
+                <div className={styles.infoRow}><span>Courriel</span><strong>{order.customer.email}</strong></div>
+              )}
             </div>
           </div>
 

@@ -17,6 +17,26 @@
 .left:hover{
   box-shadow:0 4px 12px rgba(0,0,0,0.08);
 }
+.backToMenuBtn{
+  display:inline-flex;
+  align-items:center;
+  gap:6px;
+  padding:8px 14px;
+  background:#f3f4f6;
+  border:1.5px solid #e5e7eb;
+  border-radius:999px;
+  color:#4b5563;
+  font-size:14px;
+  font-weight:600;
+  cursor:pointer;
+  transition:all 0.2s ease;
+  margin-bottom:16px;
+}
+.backToMenuBtn:hover{
+  background:#e5e7eb;
+  color:#111827;
+  border-color:#d1d5db;
+}
 .title{
   margin:0;
   font-size:28px;
@@ -258,8 +278,52 @@
   background:#f9fafb;
   text-align:center;
 }
-.driverSection{
+.etaBanner{
   margin-top:24px;
+  display:flex;
+  align-items:center;
+  gap:20px;
+  padding:24px 28px;
+  background:#fff;
+  border:1.5px solid #e5e7eb;
+  border-radius:18px;
+  box-shadow:0 2px 8px rgba(0,0,0,0.05);
+}
+.etaBannerIcon{
+  flex-shrink:0;
+  width:56px;
+  height:56px;
+  border-radius:50%;
+  background:#f3f4f6;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  color:#111827;
+}
+.etaBannerContent{
+  flex:1;
+}
+.etaBannerLabel{
+  font-size:13px;
+  font-weight:600;
+  color:#6b7280;
+  text-transform:uppercase;
+  letter-spacing:0.5px;
+  margin-bottom:4px;
+}
+.etaBannerTime{
+  font-size:28px;
+  font-weight:800;
+  color:#111827;
+  line-height:1.2;
+}
+.etaBannerUpdate{
+  font-size:12px;
+  color:#9ca3af;
+  margin-top:6px;
+}
+.driverSection{
+  margin-top:16px;
   border:1.5px solid #e5e7eb;
   border-radius:18px;
   padding:20px;
@@ -475,6 +539,25 @@
 	}
 	.itemPrice{
 		font-size:15px;
+	}
+	.etaBanner{
+		padding:20px;
+		gap:16px;
+		border-radius:16px;
+	}
+	.etaBannerIcon{
+		width:48px;
+		height:48px;
+	}
+	.etaBannerIcon svg{
+		width:24px;
+		height:24px;
+	}
+	.etaBannerTime{
+		font-size:24px;
+	}
+	.etaBannerLabel{
+		font-size:12px;
 	}
 	.driverSection{
 		padding:16px;

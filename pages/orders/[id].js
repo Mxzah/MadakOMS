@@ -79,7 +79,7 @@ export default function OrderTrackPage() {
     loadOrder({ signal: controller.signal })
     const interval = setInterval(() => {
       loadOrder({ silent: true })
-    }, 60000)
+    }, 120000)
     return () => {
       controller.abort()
       clearInterval(interval)
@@ -204,13 +204,6 @@ export default function OrderTrackPage() {
     return formatDateTime(order.scheduled_at)
   }, [order])
 
-  const driverUpdatedLabel = useMemo(() => {
-    if (!order?.driverLocation?.updated_at) return null
-    const date = new Date(order.driverLocation.updated_at)
-    if (Number.isNaN(date.getTime())) return null
-    return date.toLocaleString('fr-CA', { dateStyle: 'short', timeStyle: 'short' })
-  }, [order?.driverLocation?.updated_at])
-
   const driverPosition = useMemo(() => {
     if (!order?.driverLocation) return null
     const lat = Number(order.driverLocation.lat)
@@ -234,6 +227,7 @@ export default function OrderTrackPage() {
   }, [order?.delivery_address])
 
   const [etaLabel, setEtaLabel] = useState('Non disponible')
+  const [lastRefreshLabel, setLastRefreshLabel] = useState(null)
 
   useEffect(() => {
     if (typeof window === 'undefined') return undefined
@@ -245,6 +239,9 @@ export default function OrderTrackPage() {
         restaurantPosition,
         destinationPosition,
       })
+      // Mettre à jour l'heure de la dernière mise à jour
+      setLastRefreshLabel(new Date().toLocaleString('fr-CA', { dateStyle: 'short', timeStyle: 'short' }))
+      
       if (!seconds) {
         if (order?.scheduled_at) {
           const date = new Date(order.scheduled_at)
@@ -261,7 +258,7 @@ export default function OrderTrackPage() {
     }
 
     updateEta()
-    intervalId = window.setInterval(updateEta, 60000)
+    intervalId = window.setInterval(updateEta, 120000)
     return () => {
       if (intervalId) window.clearInterval(intervalId)
     }
@@ -290,6 +287,17 @@ export default function OrderTrackPage() {
       <Header name="Détails de la commande" showCart={false} />
       <main className={styles.wrapper}>
         <section className={styles.left}>
+          {order?.restaurant?.slug && (
+            <button
+              className={styles.backToMenuBtn}
+              onClick={() => router.push(`/restaurant/${order.restaurant.slug}`)}
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M15 18L9 12L15 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+              Retour au menu
+            </button>
+          )}
           <h2 className={styles.title}>Commande {orderNumberLabel || id || ''}</h2>
           {order?.restaurant?.name && <p className={styles.subtitle}>{order.restaurant.name}</p>}
           {order && (
@@ -333,28 +341,40 @@ export default function OrderTrackPage() {
               </div>
 
               {order?.driver_id && order?.fulfillment === 'delivery' && !['cancelled', 'failed', 'completed'].includes(order.status) && (
-                <div className={styles.driverSection}>
-                  <div className={styles.driverSectionHeader}>
-                    <div>
-                      <div className={styles.driverSectionTitle}>Position du livreur</div>
-                      {driverUpdatedLabel && (
-                        <div className={styles.driverSectionSubtitle}>
-                          Mise à jour {driverUpdatedLabel} · Heure d&apos;arrivée prévue : {etaLabel}
-                        </div>
+                <>
+                  <div className={styles.etaBanner}>
+                    <div className={styles.etaBannerIcon}>
+                      <svg width="28" height="28" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="2"/>
+                        <path d="M12 7v5l3 3" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+                      </svg>
+                    </div>
+                    <div className={styles.etaBannerContent}>
+                      <div className={styles.etaBannerLabel}>Heure d&apos;arrivée estimée</div>
+                      <div className={styles.etaBannerTime}>{etaLabel}</div>
+                      {lastRefreshLabel && (
+                        <div className={styles.etaBannerUpdate}>Mis à jour à {lastRefreshLabel}</div>
                       )}
                     </div>
-                    {!driverPosition && (
-                      <span className={styles.driverSectionHelper}>Localisation en cours…</span>
-                    )}
                   </div>
-                  <div className={styles.driverMapWrapper}>
-                    {driverPosition ? (
-                      <DriverMap driverPosition={driverPosition} destinationPosition={destinationPosition} />
-                    ) : (
-                      <div className={styles.driverMapEmpty}>Le livreur n'a pas encore partagé sa position.</div>
-                    )}
+                  <div className={styles.driverSection}>
+                    <div className={styles.driverSectionHeader}>
+                      <div>
+                        <div className={styles.driverSectionTitle}>Position du livreur</div>
+                      </div>
+                      {!driverPosition && (
+                        <span className={styles.driverSectionHelper}>Localisation en cours…</span>
+                      )}
+                    </div>
+                    <div className={styles.driverMapWrapper}>
+                      {driverPosition ? (
+                        <DriverMap driverPosition={driverPosition} destinationPosition={destinationPosition} restaurantPosition={restaurantPosition} />
+                      ) : (
+                        <div className={styles.driverMapEmpty}>Le livreur n'a pas encore partagé sa position.</div>
+                      )}
+                    </div>
                   </div>
-                </div>
+                </>
               )}
 
               {isFailed && (
@@ -398,6 +418,10 @@ export default function OrderTrackPage() {
                   // Filtrer les événements status_changed qui n'ont pas de payload.status valide
                   // (ceux qui affichent juste "status changed" sans information utile)
                   const filteredEvents = (order.events || []).filter((event) => {
+                    // Exclure les événements distance_calculated (technique, pas pertinent pour le client)
+                    if (event.event_type === 'distance_calculated') {
+                      return false
+                    }
                     if (event.event_type === 'status_changed') {
                       // Garder seulement ceux qui ont un payload.status valide
                       return event.payload?.status && typeof event.payload.status === 'string'
@@ -629,10 +653,13 @@ function normalizeDriverLocation(row) {
 
 const BASE_SPEED_KMH = 32
 const BUFFER_SECONDS = 120
+// Facteur de détour pour approximer la distance routière réelle vs distance à vol d'oiseau
+// 1.35 = les routes sont environ 35% plus longues que la ligne droite (typique en zone urbaine/suburbaine)
+const ROAD_FACTOR = 1.35
 
 function computeDriverEtaSeconds({ status, driverPosition, restaurantPosition, destinationPosition }) {
   if (!driverPosition || !destinationPosition) return null
-  const distanceToSeconds = (km) => (km / BASE_SPEED_KMH) * 3600
+  const distanceToSeconds = (km) => (km * ROAD_FACTOR / BASE_SPEED_KMH) * 3600
 
   if (status === 'assigned') {
     if (!restaurantPosition) return null
