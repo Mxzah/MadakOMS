@@ -143,7 +143,7 @@ export default function CheckoutPage() {
   const [addressDraft, setAddressDraft] = useState('')
   const [instructions, setInstructions] = useState('')
   const [apartmentSuite, setApartmentSuite] = useState('')
-  const [dropOption, setDropOption] = useState('hand') // 'hand' | 'door'
+  const [dropOption, setDropOption] = useState('door') // 'hand' | 'door'
   const [showDeliveryModal, setShowDeliveryModal] = useState(false)
   const [showAddressModal, setShowAddressModal] = useState(false)
   const [addressLat, setAddressLat] = useState(null)
@@ -200,7 +200,12 @@ export default function CheckoutPage() {
   }, [remainingWeekDays, scheduleDayIndex, operatingWindows])
   const slotLabel = (slot) => {
     const fmt = (d) => d.toLocaleTimeString('fr-CA', { hour: '2-digit', minute: '2-digit', hour12: false })
-    return `${fmt(slot.start)}-${fmt(slot.end)}`
+    const label = `${fmt(slot.start)} - ${fmt(slot.end)}`
+    // If this slot is from the previous day's overnight hours, indicate it
+    if (slot.isOvernightFromYesterday) {
+      return `${label} (ouvert depuis hier)`
+    }
+    return label
   }
   const scheduledSummary = useMemo(() => {
     if (deliveryMode !== 'scheduled' || !scheduleSlot) return null
@@ -424,12 +429,6 @@ export default function CheckoutPage() {
       return
     }
     // Validate payment options
-    // If dropOption is 'door', payment must be online
-    if (service === 'delivery' && dropOption === 'door' && paymentMode !== 'now') {
-      setPaymentError('Le paiement en ligne est obligatoire pour "Laisser à la porte".')
-      setOpenSection(service === 'pickup' ? 2 : 3)
-      return
-    }
     if (paymentMode === 'now') {
       if (!availablePaymentOptions.card_online) {
         setPaymentError('Le paiement en ligne n\'est pas disponible pour ce type de commande.')
@@ -877,18 +876,8 @@ export default function CheckoutPage() {
     if (!paymentOptionsByService) return
     const options = availablePaymentOptions
 
-    // If dropOption is 'door' (Laisser à la porte), force payment to 'now' (online)
-    if (service === 'delivery' && dropOption === 'door' && paymentMode === 'cod') {
-      if (options.card_online) {
-        setPaymentMode('now')
-        setPaymentError('')
-      } else {
-        setPaymentError('Le paiement en ligne est obligatoire pour "Laisser à la porte". Veuillez activer le paiement en ligne dans les paramètres du restaurant.')
-      }
-    }
-
-    // If 'now' (card_online) is not available, switch to 'cod' (unless dropOption is 'door')
-    if (paymentMode === 'now' && !options.card_online && !(service === 'delivery' && dropOption === 'door')) {
+    // If 'now' (card_online) is not available, switch to 'cod'
+    if (paymentMode === 'now' && !options.card_online) {
       setPaymentMode('cod')
     }
 
@@ -905,7 +894,7 @@ export default function CheckoutPage() {
         setPaymentMode('now')
       }
     }
-  }, [availablePaymentOptions, paymentMode, codMethod, paymentOptionsByService, dropOption, service])
+  }, [availablePaymentOptions, paymentMode, codMethod, paymentOptionsByService])
 
   const handleBackToHome = () => {
     router.push('/').catch(() => {})
@@ -1255,7 +1244,6 @@ export default function CheckoutPage() {
               {/* Phone row removed as requested */}
 
               <div className={styles.sectionFooter}>
-                <button type="button" className={styles.backBtn} onClick={() => setOpenSection(1)}>Retour</button>
                 <button type="button" className={styles.nextBtn} onClick={() => { if (validateSection2()) setOpenSection(3) }}>Suivant</button>
               </div>
             </>
@@ -1275,23 +1263,11 @@ export default function CheckoutPage() {
                   <button type="button" className={`${styles.segBtn} ${paymentMode==='now' ? styles.segBtnActive : ''}`} onClick={()=>{ setPaymentMode('now'); setPaymentError('') }}>Payer maintenant</button>
                 )}
                 {(availablePaymentOptions.card_terminal || availablePaymentOptions.cash) && (
-                  <button 
-                    type="button" 
-                    className={`${styles.segBtn} ${paymentMode==='cod' ? styles.segBtnActive : ''}`} 
-                    onClick={()=>{ setPaymentMode('cod'); setPaymentError('') }}
-                    disabled={service === 'delivery' && dropOption === 'door'}
-                    aria-disabled={service === 'delivery' && dropOption === 'door'}
-                    title={service === 'delivery' && dropOption === 'door' ? 'Le paiement en ligne est obligatoire pour "Laisser à la porte"' : ''}
-                  >
+                  <button type="button" className={`${styles.segBtn} ${paymentMode==='cod' ? styles.segBtnActive : ''}`} onClick={()=>{ setPaymentMode('cod'); setPaymentError('') }}>
                     {service === 'pickup' ? 'Payer sur place' : 'Payer à la livraison'}
                   </button>
                 )}
               </div>
-              {service === 'delivery' && dropOption === 'door' && (
-                <div style={{marginTop: 12, padding: 12, background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 10, fontSize: 14, color: '#1e40af', lineHeight: 1.5}}>
-                  <strong>Paiement en ligne obligatoire</strong> : Le paiement en ligne est requis lorsque vous choisissez "Laisser à la porte".
-                </div>
-              )}
 
               {paymentMode === 'now' && (stripeCardElement || hasCard) && (
                 <div className={styles.rowItem} style={{borderTop:'none',paddingTop:12,marginTop:4}}>
@@ -1389,13 +1365,6 @@ export default function CheckoutPage() {
                 </div>
               )}
               <div className={styles.sectionFooter}>
-                <button 
-                  type="button" 
-                  className={styles.backBtn} 
-                  onClick={() => setOpenSection(service === 'pickup' ? 1 : 2)}
-                >
-                  Retour
-                </button>
                 <button
                   type="button"
                   className={styles.nextBtn}
@@ -2098,36 +2067,101 @@ function clamp(value, min, max) {
 function buildSlotsForDate(date, windowsMap) {
   if (!(date instanceof Date)) return []
   if (!windowsMap) return []
-  const segments = windowsMap[date.getDay()]
-  if (!Array.isArray(segments) || segments.length === 0) return []
   const windowMinutes = 20
   const now = new Date()
   const isToday = date.toDateString() === now.toDateString()
   const slots = []
 
-  segments.forEach(({ open, close }) => {
-    if (!open || !close) return
-    const [openH, openM = '0'] = open.split(':').map(Number)
-    const [closeH, closeM = '0'] = close.split(':').map(Number)
-    if (Number.isNaN(openH) || Number.isNaN(closeH)) return
-    let segmentStart = new Date(date.getFullYear(), date.getMonth(), date.getDate(), openH, Number.isNaN(openM) ? 0 : openM)
-    let segmentEnd = new Date(date.getFullYear(), date.getMonth(), date.getDate(), closeH, Number.isNaN(closeM) ? 0 : closeM)
-    if (segmentEnd <= segmentStart) {
-      segmentEnd = new Date(segmentEnd.getTime() + 24 * 60 * 60 * 1000)
-    }
+  // Helper function to generate slots from segments
+  const generateSlotsFromSegments = (segments, baseDate, filterPastSlots) => {
+    if (!Array.isArray(segments) || segments.length === 0) return
 
-    let cursor = segmentStart
-    while (cursor < segmentEnd) {
-      const slotEnd = new Date(cursor.getTime() + windowMinutes * 60000)
-      if (slotEnd > segmentEnd) break
-      if (isToday && slotEnd <= now) {
-        cursor = slotEnd
-        continue
+    segments.forEach(({ open, close }) => {
+      if (!open || !close) return
+      const [openH, openM = '0'] = open.split(':').map(Number)
+      const [closeH, closeM = '0'] = close.split(':').map(Number)
+      if (Number.isNaN(openH) || Number.isNaN(closeH)) return
+      
+      let segmentStart = new Date(baseDate.getFullYear(), baseDate.getMonth(), baseDate.getDate(), openH, Number.isNaN(openM) ? 0 : openM)
+      let segmentEnd = new Date(baseDate.getFullYear(), baseDate.getMonth(), baseDate.getDate(), closeH, Number.isNaN(closeM) ? 0 : closeM)
+      
+      // If close time is before or equal to open time, it means the restaurant closes after midnight
+      if (segmentEnd <= segmentStart) {
+        segmentEnd = new Date(segmentEnd.getTime() + 24 * 60 * 60 * 1000)
       }
-      slots.push({ start: new Date(cursor), end: slotEnd })
-      cursor = slotEnd
+
+      let cursor = segmentStart
+      while (cursor < segmentEnd) {
+        const slotEnd = new Date(cursor.getTime() + windowMinutes * 60000)
+        if (slotEnd > segmentEnd) break
+        if (filterPastSlots && slotEnd <= now) {
+          cursor = slotEnd
+          continue
+        }
+        slots.push({ start: new Date(cursor), end: slotEnd })
+        cursor = slotEnd
+      }
+    })
+  }
+
+  // First, check if there are overnight slots from the previous day that are still valid
+  // This handles the case where it's Saturday 00:14 and Friday closes at 02:00
+  if (isToday) {
+    const yesterday = new Date(date)
+    yesterday.setDate(yesterday.getDate() - 1)
+    const yesterdaySegments = windowsMap[yesterday.getDay()]
+    
+    if (Array.isArray(yesterdaySegments) && yesterdaySegments.length > 0) {
+      // Check each segment from yesterday to see if it extends into today
+      yesterdaySegments.forEach(({ open, close }) => {
+        if (!open || !close) return
+        const [openH, openM = '0'] = open.split(':').map(Number)
+        const [closeH, closeM = '0'] = close.split(':').map(Number)
+        if (Number.isNaN(openH) || Number.isNaN(closeH)) return
+        
+        // Check if this segment closes after midnight (close time < open time)
+        const closesAfterMidnight = closeH < openH || (closeH === openH && closeM < openM)
+        
+        if (closesAfterMidnight) {
+          // The segment from yesterday extends into today
+          // Create slots from midnight (or now if it's today) until close time
+          const midnightToday = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 0, 0)
+          const segmentEnd = new Date(date.getFullYear(), date.getMonth(), date.getDate(), closeH, Number.isNaN(closeM) ? 0 : closeM)
+          
+          // Only add slots if we haven't passed the close time yet
+          if (now < segmentEnd) {
+            let cursor = midnightToday
+            // Start from now if we're past midnight
+            if (cursor < now) {
+              // Round up to the next slot boundary
+              const minutesSinceMidnight = (now.getHours() * 60) + now.getMinutes()
+              const nextSlotMinutes = Math.ceil(minutesSinceMidnight / windowMinutes) * windowMinutes
+              cursor = new Date(date.getFullYear(), date.getMonth(), date.getDate(), Math.floor(nextSlotMinutes / 60), nextSlotMinutes % 60)
+            }
+            
+            while (cursor < segmentEnd) {
+              const slotEnd = new Date(cursor.getTime() + windowMinutes * 60000)
+              if (slotEnd > segmentEnd) break
+              if (slotEnd <= now) {
+                cursor = slotEnd
+                continue
+              }
+              // Mark these slots as overnight from previous day
+              slots.push({ start: new Date(cursor), end: slotEnd, isOvernightFromYesterday: true })
+              cursor = slotEnd
+            }
+          }
+        }
+      })
     }
-  })
+  }
+
+  // Then, add slots for the current day's schedule
+  const segments = windowsMap[date.getDay()]
+  generateSlotsFromSegments(segments, date, isToday)
+
+  // Sort slots by start time to ensure proper order
+  slots.sort((a, b) => a.start.getTime() - b.start.getTime())
 
   return slots
 }
